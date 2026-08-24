@@ -1,0 +1,9 @@
+services:
+  steam-anime-bot:
+    build: .
+    container_name: anime_bot_container
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./storage.json:/app/storage.json
