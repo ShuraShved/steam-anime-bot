@@ -7,11 +7,12 @@ from datetime import datetime, date, time, timedelta
 import os
 
 import logging
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, LinkPreviewOptions
 from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, CallbackQueryHandler
 from telegram.constants import ParseMode
 import requests
 from google import genai
+from mistralai.client import Mistral
 from dotenv import load_dotenv
 
 
@@ -286,7 +287,7 @@ async def run_check_released(context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def generate_and_send_summary(context: ContextTypes.DEFAULT_TYPE, day: date) -> None:
     storage = load_storage()
-    client = genai.Client(api_key=os.getenv("AI_KEY"))
+    client = Mistral(api_key=os.getenv("AI_KEY"))
     released = storage.get("released_appids", [])
 
     day_iso = day.isoformat()
@@ -301,35 +302,70 @@ async def generate_and_send_summary(context: ContextTypes.DEFAULT_TYPE, day: dat
     need_demos = any(pref["want_demos"] and not pref["want_games"] for pref in subscribers.values())
     need_combo = any(pref["want_games"] and pref["want_demos"] for pref in subscribers.values())
 
+    today = "today" if date.today().isoformat() == day_iso else day_iso
+
     def build_prompt(appids):
         return (
             "You have a list of games released today, each in the form 'name: description', one per line. "
             "Summarize the games and genres based on their descriptions, and pick a few of the most exciting "
-            "ones to recommend. First line: write the number of games. Second line: write the genres. "
-            "Third line: write a summary and recommendations. Add emojis and write in a friendly tone.\n"
+            "ones to recommend. First line: write the number of games and date. Like: "
+            f"'5 new games dropped {today}! 🕹️🎉' or think of something alike yourself. "
+            "Second line: write the genres. "
+            "Third line: write a summary and recommendations. Add emojis and write in a friendly tone. "
+            "The output will be sent using Telegram HTML parse mode. "
+            "Use only these Telegram HTML tags: "
+            "<b>, <strong>, <i>, <em>, <u>, <ins>, <s>, <strike>, <del>,"
+            "<code>, <pre>, <a href='URL'>, and <blockquote>. "
+            "Never use: "
+            "<span>, <div>, <p>, <br>, <font>, <style>, <section>, "
+            "Markdown syntax, CSS, or arbitrary HTML attributes. "
+            "Output only the final message. Do not output explanations, "
+            "HTML code fences, or any tag not listed above. "
+            "Don't forget to link games you'll reference like <a href='https://example.com'>Link</a>.\n"
             f"Here is the list:\n{appids}"
         )
 
     interaction_game = interaction_demo = interaction_combo = None
     if need_games and game_list:
-        interaction_game = client.interactions.create(model="gemini-3.7-flash", input=build_prompt(game_list))
+        interaction_game = client.chat.complete(
+            model="mistral-large-latest",
+            messages=[
+                {"role": "user", "content": build_prompt(game_list)}
+            ],
+        )
     if need_demos and demo_list:
-        interaction_demo = client.interactions.create(model="gemini-3.7-flash", input=build_prompt(demo_list))
+        interaction_demo = client.chat.complete(
+            model="mistral-large-latest",
+            messages=[
+                {"role": "user", "content": build_prompt(demo_list)}
+            ],
+        )
     if need_combo and (game_list or demo_list):
-        interaction_combo = client.interactions.create(model="gemini-3.7-flash",
-                                                       input=build_prompt(game_list + demo_list))
+        interaction_combo = client.chat.complete(
+            model="mistral-large-latest",
+            messages=[
+                {"role": "user", "content": build_prompt(game_list + demo_list)}
+            ],
+        )
 
     for chat_id, prefs in subscribers.items():
         if prefs["want_games"] and prefs["want_demos"] and interaction_combo:
-            text = interaction_combo.output_text
+            text = interaction_combo.choices[0].message.content
         elif prefs["want_games"] and not prefs["want_demos"] and interaction_game:
-            text = interaction_game.output_text
+            text = interaction_game.choices[0].message.content
         elif prefs["want_demos"] and not prefs["want_games"] and interaction_demo:
-            text = interaction_demo.output_text
+            text = interaction_demo.choices[0].message.content
         else:
             continue
         try:
-            await context.bot.send_message(chat_id=chat_id, text=text)
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=text,
+                parse_mode="HTML",
+                link_preview_options = LinkPreviewOptions(
+                    is_disabled=True
+                ),
+            )
         except Exception as e:
             log.warning("Couldn't send summarize message in chat %s: %s", chat_id, e)
 
@@ -473,7 +509,7 @@ if __name__ == '__main__':
 
     application.job_queue.run_daily(
         daily_summary,
-        time=time(hour=18, minute=0),
+        time=time(hour=16, minute=0),
         name="daily_summary",
     )
 
