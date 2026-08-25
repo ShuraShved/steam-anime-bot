@@ -91,11 +91,10 @@ def fetch_released_anime_games(category: int = GAMES_CATEGORY) -> list[int]:
         return res
 
 
-# When category=10 Steam gives an actual demo ver, which is standalone released game by itself.
-# Despite it having demo type, that means there are no "coming_soon: true" and "release date" for a full game.
-# Those are stored in a separate appid, which is a "full game", that demo one has as a json parameter
-# named "full game". There "coming_soon: true" and planned release date are present. So this func tries
-# to fetch these data.
+# Steam treats demos (category=10) as standalone apps, so their API
+# responses do not include the full game's actual release date.
+# This function uses the demo's "fullgame" JSON parameter to fetch
+# the parent appid and retrieve its true "coming_soon" status and release date.
 def fetch_full_game(appid: int) -> tuple | None:
     try:
         resp = requests.get(
@@ -418,7 +417,7 @@ async def on_toggle_pressed(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         today = date.today().isoformat()
         older_seqs = [e["seq"] for e in storage["released_appids"] if e["type"] == f"{key[:-1]}"
                       and e["release_iso"] < today]
-        storage["subscribers"][chat_id][f"{key}_cursor"] = older_seqs
+        storage["subscribers"][chat_id][f"{key}_cursor"] = max(older_seqs, default=0)
 
     storage["subscribers"][chat_id][pref_key] = not storage["subscribers"][chat_id].get(pref_key, True)
     save_storage(storage)
