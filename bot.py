@@ -179,9 +179,8 @@ def build_caption(appid: int, info: dict) -> str:
     )
 
 
-async def run_check_released(context: ContextTypes.DEFAULT_TYPE) -> None:
+async def run_check_releases(context: ContextTypes.DEFAULT_TYPE) -> None:
     storage = load_storage()
-    subscribers = storage.get("subscribers", {})
     released = storage["released_appids"]
     known_appids = {entry["appid"] for entry in released}
 
@@ -194,7 +193,7 @@ async def run_check_released(context: ContextTypes.DEFAULT_TYPE) -> None:
     log.info("Found %d new released games.", len(new_game_appids))
     log.info("Found %d new released demos.", len(new_demo_appids))
 
-    for appid in new_game_appids:
+    for appid in new_game_appids + new_demo_appids:
         info = await asyncio.to_thread(fetch_game_details, appid)
         await asyncio.sleep(1.5)
 
@@ -216,33 +215,24 @@ async def run_check_released(context: ContextTypes.DEFAULT_TYPE) -> None:
             "release_iso": game_date.isoformat(),
         })
 
-    for appid in new_demo_appids:
-        info = await asyncio.to_thread(fetch_game_details, appid)
-        await asyncio.sleep(1.5)
+    storage["released_appids"] = released
+    save_storage(storage)
+    await deliver_pending(context)
 
-        if info is None:
-            continue
 
-        game_date = info["parsed_date"]
-        seq = storage["next_seq"]
-        storage["next_seq"] += 1
-        released.append({
-            "seq": seq,
-            "appid": appid,
-            "type": info["type"],
-            "name": info["name"],
-            "description": info["description"],
-            "image": info["image"],
-            "price": info["price"],
-            "release_date": info["release_date_str"],
-            "release_iso": game_date.isoformat(),
-        })
+async def deliver_pending(context: ContextTypes.DEFAULT_TYPE, chat_id: str | None = None) -> None:
+    storage = load_storage()
+    subscribers = storage.get("subscribers", {})
+    released = storage["released_appids"]
 
-    for chat_id, sub_info in subscribers.items():
+    targets = {chat_id: subscribers[chat_id]} if chat_id is not None else subscribers
+
+    for chat_id, sub_info in targets.items():
         pref_games = sub_info.get("want_games", True)
         pref_demos = sub_info.get("want_demos", True)
         games_cursor = sub_info.get("games_cursor", 0)
         demos_cursor = sub_info.get("demos_cursor", 0)
+
         pending_games = [e for e in released if e["type"] == "game"
                          and e["seq"] > games_cursor]
         pending_demos = [e for e in released if e["type"] == "demo"
@@ -279,7 +269,6 @@ async def run_check_released(context: ContextTypes.DEFAULT_TYPE) -> None:
         subscribers[chat_id]["games_cursor"] = max_game_seq_sent
         subscribers[chat_id]["demos_cursor"] = max_demo_seq_sent
 
-    storage["released_appids"] = released
     storage["subscribers"] = subscribers
     save_storage(storage)
 
@@ -457,7 +446,7 @@ async def subscribe(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
         save_storage(storage)
         await update.message.reply_text("Subscribed.")
-        await run_check_released(context)
+        await deliver_pending(context)
     else:
         await update.message.reply_text("This user is already subscribed.")
 
@@ -500,7 +489,7 @@ if __name__ == '__main__':
     application.add_handler(toggle_button_handler)
 
     application.job_queue.run_repeating(
-        run_check_released,
+        run_check_releases,
         interval=interval_minutes * 60,
         first=10,
         name="run_check",
