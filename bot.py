@@ -497,7 +497,7 @@ if __name__ == '__main__':
 
     application.job_queue.run_daily(
         daily_summary,
-        time=time(hour=13, minute=58),
+        time=time(hour=16, minute=0),
         name="daily_summary",
     )
 
