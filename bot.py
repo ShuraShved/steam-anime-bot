@@ -43,7 +43,7 @@ def load_storage() -> dict:
     data.setdefault("pending_appids", [])
     data.setdefault("released_appids", [])
     data.setdefault("next_seq", 1)
-    data.setdefault("last_summary_date", "2026-08-24")
+    data.setdefault("last_summary_date", date.today().isoformat())
     return data
 
 
@@ -497,7 +497,7 @@ if __name__ == '__main__':
 
     application.job_queue.run_daily(
         daily_summary,
-        time=time(hour=16, minute=0),
+        time=time(hour=13, minute=58),
         name="daily_summary",
     )
 
