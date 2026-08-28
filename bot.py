@@ -429,9 +429,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text("Hello! This is a bot that will send you new released anime games.\n\n"
                                     "Here is the list of all available commands:\n"
                                     "/start – 👋 Greeting message\n"
-                                    "/follow – 🔒 Follow for new anime games releases\n"
-                                    "/unfollow – 🔓 Unfollow from new anime games releases\n"
-                                    "/settings – 📑 Manage your follow choices\n"
+                                    "/follow – 🔒 Follow new anime game releases\n"
+                                    "/unfollow – 🔓 Unfollow new anime game releases\n"
+                                    "/settings – 📑 Manage your follow preferences\n"
                                     "/kawaii – 🥚")
 
 
@@ -507,7 +507,7 @@ if __name__ == '__main__':
 
     application.job_queue.run_daily(
         daily_summary,
-        time=time(hour=16, minute=0),
+        time=time(hour=18, minute=0),
         name="daily_summary",
     )
 
