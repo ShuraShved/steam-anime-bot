@@ -344,7 +344,7 @@ async def generate_and_send_summary(context: ContextTypes.DEFAULT_TYPE, day: dat
             )
         except Exception as e:
             log.warning("AI API is down or unreachable: ", e)
-            
+
     for chat_id, prefs in subscribers.items():
         if prefs["want_games"] and prefs["want_demos"] and interaction_combo:
             text = interaction_combo.choices[0].message.content
@@ -506,7 +506,7 @@ if __name__ == '__main__':
 
     application.job_queue.run_daily(
         daily_summary,
-        time=time(hour=15, minute=27),
+        time=time(hour=16, minute=0),
         name="daily_summary",
     )
 
