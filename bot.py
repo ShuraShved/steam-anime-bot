@@ -39,7 +39,7 @@ def load_storage() -> dict:
         data = json.loads(STORAGE_PATH.read_text(encoding="utf-8"))
     else:
         data = {}
-    data.setdefault("subscribers", {})
+    data.setdefault("followers", {})
     data.setdefault("pending_appids", [])
     data.setdefault("released_appids", [])
     data.setdefault("next_seq", 1)
@@ -222,16 +222,16 @@ async def run_check_releases(context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def deliver_pending(context: ContextTypes.DEFAULT_TYPE, chat_id: str | None = None) -> None:
     storage = load_storage()
-    subscribers = storage.get("subscribers", {})
+    followers = storage.get("followers", {})
     released = storage["released_appids"]
 
-    targets = {chat_id: subscribers[chat_id]} if chat_id is not None else subscribers
+    targets = {chat_id: followers[chat_id]} if chat_id is not None else followers
 
-    for chat_id, sub_info in targets.items():
-        pref_games = sub_info.get("want_games", True)
-        pref_demos = sub_info.get("want_demos", True)
-        games_cursor = sub_info.get("games_cursor", 0)
-        demos_cursor = sub_info.get("demos_cursor", 0)
+    for chat_id, info in targets.items():
+        pref_games = info.get("want_games", True)
+        pref_demos = info.get("want_demos", True)
+        games_cursor = info.get("games_cursor", 0)
+        demos_cursor = info.get("demos_cursor", 0)
 
         pending_games = [e for e in released if e["type"] == "game"
                          and e["seq"] > games_cursor]
@@ -266,10 +266,10 @@ async def deliver_pending(context: ContextTypes.DEFAULT_TYPE, chat_id: str | Non
                 log.warning("Couldn't send message in chat %s: %s", chat_id, e)
                 break
 
-        subscribers[chat_id]["games_cursor"] = max_game_seq_sent
-        subscribers[chat_id]["demos_cursor"] = max_demo_seq_sent
+        followers[chat_id]["games_cursor"] = max_game_seq_sent
+        followers[chat_id]["demos_cursor"] = max_demo_seq_sent
 
-    storage["subscribers"] = subscribers
+    storage["followers"] = followers
     save_storage(storage)
 
 
@@ -285,10 +285,10 @@ async def generate_and_send_summary(context: ContextTypes.DEFAULT_TYPE, day: dat
     if not game_list and demo_list:
         return
 
-    subscribers = storage["subscribers"]
-    need_games = any(pref["want_games"] and not pref["want_demos"] for pref in subscribers.values())
-    need_demos = any(pref["want_demos"] and not pref["want_games"] for pref in subscribers.values())
-    need_combo = any(pref["want_games"] and pref["want_demos"] for pref in subscribers.values())
+    followers = storage["followers"]
+    need_games = any(pref["want_games"] and not pref["want_demos"] for pref in followers.values())
+    need_demos = any(pref["want_demos"] and not pref["want_games"] for pref in followers.values())
+    need_combo = any(pref["want_games"] and pref["want_demos"] for pref in followers.values())
 
     today = "today" if date.today().isoformat() == day_iso else day_iso
 
@@ -345,7 +345,7 @@ async def generate_and_send_summary(context: ContextTypes.DEFAULT_TYPE, day: dat
         except Exception as e:
             log.warning("AI API is down or unreachable: ", e)
 
-    for chat_id, prefs in subscribers.items():
+    for chat_id, prefs in followers.items():
         if prefs["want_games"] and prefs["want_demos"] and interaction_combo:
             text = interaction_combo.choices[0].message.content
         elif prefs["want_games"] and not prefs["want_demos"] and interaction_game:
@@ -394,8 +394,8 @@ def build_settings_keyboard(prefs: dict) -> InlineKeyboardMarkup:
 async def settings(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     storage = load_storage()
     chat_id = str(update.effective_chat.id)
-    prefs = storage["subscribers"].get(chat_id, {})
-    await update.message.reply_text("Manage your subscriptions:", reply_markup=build_settings_keyboard(prefs))
+    prefs = storage["followers"].get(chat_id, {})
+    await update.message.reply_text("Manage your follows:", reply_markup=build_settings_keyboard(prefs))
 
 
 async def on_toggle_pressed(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -404,24 +404,24 @@ async def on_toggle_pressed(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
     storage = load_storage()
     chat_id = str(update.effective_chat.id)
-    if chat_id not in storage["subscribers"]:
+    if chat_id not in storage["followers"]:
         return
 
     _, key = query.data.split(":")
     pref_key = f"want_{key}"
 
-    # move the cursor so user doesn't get flooded with a month's worth of games/demos while unsubscribed from one
-    if not storage["subscribers"][chat_id][pref_key]:
+    # move the cursor so user doesn't get flooded with a month's worth of games/demos while unfollowed from one
+    if not storage["followers"][chat_id][pref_key]:
         today = date.today().isoformat()
         older_seqs = [e["seq"] for e in storage["released_appids"] if e["type"] == f"{key[:-1]}"
                       and e["release_iso"] < today]
-        storage["subscribers"][chat_id][f"{key}_cursor"] = max(older_seqs, default=0)
+        storage["followers"][chat_id][f"{key}_cursor"] = max(older_seqs, default=0)
 
-    storage["subscribers"][chat_id][pref_key] = not storage["subscribers"][chat_id].get(pref_key, True)
+    storage["followers"][chat_id][pref_key] = not storage["followers"][chat_id].get(pref_key, True)
     save_storage(storage)
 
     await query.edit_message_reply_markup(
-        reply_markup=build_settings_keyboard(storage["subscribers"][chat_id])
+        reply_markup=build_settings_keyboard(storage["followers"][chat_id])
     )
 
 
@@ -429,24 +429,24 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text("Hello! This is a bot that will send you new released anime games.\n\n"
                                     "Here is the list of all available commands:\n"
                                     "/start – 👋 Greeting message\n"
-                                    "/subscribe – 🔒 Subscribe for new anime games releases\n"
-                                    "/unsubscribe – 🔓 Unsubscribe from new anime games releases\n"
-                                    "/settings – 📑 Manage your subscription choices\n"
+                                    "/follow – 🔒 Follow for new anime games releases\n"
+                                    "/unfollow – 🔓 Unfollow from new anime games releases\n"
+                                    "/settings – 📑 Manage your follow choices\n"
                                     "/kawaii – 🥚")
 
 
-async def subscribe(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def follow(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     storage = load_storage()
     chat_id = str(update.effective_chat.id)
 
-    if chat_id not in storage["subscribers"]:
+    if chat_id not in storage["followers"]:
         today = date.today().isoformat()
         older_games_seqs = [e["seq"] for e in storage["released_appids"] if e["type"] == "game"
                             and e["release_iso"] < today]
         older_demos_seqs = [e["seq"] for e in storage["released_appids"] if e["type"] == "demo"
                             and e["release_iso"] < today]
 
-        storage["subscribers"][chat_id] = {
+        storage["followers"][chat_id] = {
             "games_cursor": max(older_games_seqs, default=0),
             "demos_cursor": max(older_demos_seqs, default=0),
             "want_games": True,
@@ -454,21 +454,21 @@ async def subscribe(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         }
 
         save_storage(storage)
-        await update.message.reply_text("Subscribed.")
+        await update.message.reply_text("Following.")
         await deliver_pending(context)
     else:
-        await update.message.reply_text("This user is already subscribed.")
+        await update.message.reply_text("This user is already following.")
 
 
-async def unsubscribe(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def unfollow(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     storage = load_storage()
     chat_id = str(update.effective_chat.id)
-    if chat_id in storage["subscribers"]:
-        storage["subscribers"].pop(chat_id)
+    if chat_id in storage["followers"]:
+        storage["followers"].pop(chat_id)
         save_storage(storage)
-        await update.message.reply_text("Unsubscribed.")
+        await update.message.reply_text("Unfollowed.")
     else:
-        await update.message.reply_text("This user is not subscribed.")
+        await update.message.reply_text("This user is not following.")
 
 
 async def kawaii(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -485,14 +485,15 @@ if __name__ == '__main__':
     application = ApplicationBuilder().token(token).build()
 
     start_handler = CommandHandler('start', start)
-    subscribe_handler = CommandHandler('subscribe', subscribe)
-    unsubscribe_handler = CommandHandler('unsubscribe', unsubscribe)
+    follow_handler = CommandHandler('follow', follow)
+    unfollow_handler = CommandHandler('unfollow', unfollow)
     kawaii_handler = CommandHandler('kawaii', kawaii)
     settings_handler = CommandHandler("settings", settings)
     toggle_button_handler = CallbackQueryHandler(on_toggle_pressed, pattern=r"^toggle:")
     application.add_handler(start_handler)
-    application.add_handler(subscribe_handler)
-    application.add_handler(unsubscribe_handler)
+    application.add_handler(follow_handler)
+    application.add_handler(unfollow_handler)
+    application.add_handler(unfollow_handler)
     application.add_handler(kawaii_handler)
     application.add_handler(settings_handler)
     application.add_handler(toggle_button_handler)
