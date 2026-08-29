@@ -317,33 +317,33 @@ async def generate_and_send_summary(context: ContextTypes.DEFAULT_TYPE, day: dat
     if need_games and game_list:
         try:
             interaction_game = client.chat.complete(
-                model="mistral-large-latest",
+                model="mistral-medium-latest",
                 messages=[
                     {"role": "user", "content": build_prompt(game_list)}
                 ],
             )
         except Exception as e:
-            log.warning("AI API is down: ", e)
+            log.warning("AI API is down or unreachable: %s", e)
     if need_demos and demo_list:
         try:
             interaction_demo = client.chat.complete(
-                model="mistral-large-latest",
+                model="mistral-medium-latest",
                 messages=[
                     {"role": "user", "content": build_prompt(demo_list)}
                 ],
             )
         except Exception as e:
-            log.warning("AI API is down: ", e)
+            log.warning("AI API is down or unreachable: %s", e)
     if need_combo and (game_list or demo_list):
         try:
             interaction_combo = client.chat.complete(
-                model="mistral-large-latest",
+                model="mistral-medium-latest",
                 messages=[
                     {"role": "user", "content": build_prompt(game_list + demo_list)}
                 ],
             )
         except Exception as e:
-            log.warning("AI API is down or unreachable: ", e)
+            log.warning("AI API is down or unreachable: %s", e)
 
     for chat_id, prefs in followers.items():
         if prefs["want_games"] and prefs["want_demos"] and interaction_combo:
@@ -507,7 +507,7 @@ if __name__ == '__main__':
 
     application.job_queue.run_daily(
         daily_summary,
-        time=time(hour=18, minute=0),
+        time=time(hour=16, minute=0),
         name="daily_summary",
     )
 
