@@ -200,7 +200,7 @@ async def run_check_releases(context: ContextTypes.DEFAULT_TYPE) -> None:
         if info is None or info["coming_soon"]:
             continue
 
-        if info["parsed_date"]  date.today():
+        if info["parsed_date"] < date.today():
             continue
 
         game_date = info["parsed_date"]
