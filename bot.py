@@ -200,6 +200,9 @@ async def run_check_releases(context: ContextTypes.DEFAULT_TYPE) -> None:
         if info is None or info["coming_soon"]:
             continue
 
+        if info["parsed_date"]  date.today():
+            continue
+
         game_date = info["parsed_date"]
         seq = storage["next_seq"]
         storage["next_seq"] += 1
@@ -507,7 +510,7 @@ if __name__ == '__main__':
 
     application.job_queue.run_daily(
         daily_summary,
-        time=time(hour=16, minute=0),
+        time=time(hour=17, minute=0),
         name="daily_summary",
     )
 
