@@ -289,7 +289,7 @@ async def generate_and_send_summary(context: ContextTypes.DEFAULT_TYPE, day: dat
     game_list = [appid for appid in released if appid["type"] == "game" and appid["release_iso"] == day_iso]
     demo_list = [appid for appid in released if appid["type"] == "demo" and appid["release_iso"] == day_iso]
 
-    if not game_list and demo_list:
+    if not game_list and not demo_list:
         return
 
     followers = storage["followers"]
@@ -730,7 +730,7 @@ if __name__ == '__main__':
 
     application.job_queue.run_daily(
         daily_summary,
-        time=time(hour=16, minute=55),
+        time=time(hour=17, minute=0),
         name="daily_summary",
     )
 
