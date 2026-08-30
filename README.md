@@ -9,6 +9,8 @@ releases on Steam, with daily AI-powered
 summary reporting on newly released games and offering 
 smart recommendations.
 
+**Email Digests [NEW!]:** Users can now link their email to receive daily summaries straight to their inbox.
+
 ## Built with
 - [python-telegram-bot](https://python-telegram-bot.org/)
 - [Mistral AI](https://mistral.ai/) (AI summaries)
