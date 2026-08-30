@@ -7,11 +7,10 @@ from datetime import datetime, date, time, timedelta
 import os
 
 import logging
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, LinkPreviewOptions
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, LinkPreviewOptions, InputMediaPhoto
 from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, CallbackQueryHandler
 from telegram.constants import ParseMode
 import requests
-#from google import genai
 from mistralai.client import Mistral
 from dotenv import load_dotenv
 
@@ -32,6 +31,11 @@ ANIME_TAG_ID = 4085
 GAMES_CATEGORY = 998
 DEMOS_CATEGORY = 10
 SEARCH_URL = "https://store.steampowered.com/search/results/"
+
+EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+MAILGUN_API_KEY = os.environ["MAILGUN_API_KEY"]
+MAILGUN_DOMAIN = os.environ["MAILGUN_DOMAIN"]
+MAILGUN_URL = f"https://api.mailgun.net/v3/{MAILGUN_DOMAIN}/messages"
 
 
 def load_storage() -> dict:
@@ -298,11 +302,11 @@ async def generate_and_send_summary(context: ContextTypes.DEFAULT_TYPE, day: dat
     def build_prompt(appids):
         return (
             "You have a list of games released today, each in the form 'name: description', one per line. "
-            "Summarize the games and genres based on their descriptions, and pick a few of the most exciting "
+            "Summarize the games and genres based on their descriptions, and pick up to 3 of the most exciting "
             "ones to recommend. First line: write the number of games and date. Like: "
             f"'5 new games dropped {today}! 🕹️🎉' or think of something alike yourself. "
             "Second line: write the genres. "
-            "Third line: write a summary and recommendations. Add emojis and write in a friendly tone. "
+            "Third line: write a summary and chosen ones to recommend. Add emojis and write in a friendly tone. "
             "The output will be sent using Telegram HTML parse mode. "
             "Use only these Telegram HTML tags: "
             "<b>, <strong>, <i>, <em>, <u>, <ins>, <s>, <strike>, <del>,"
@@ -313,6 +317,10 @@ async def generate_and_send_summary(context: ContextTypes.DEFAULT_TYPE, day: dat
             "Output only the final message. Do not output explanations, "
             "HTML code fences, or any tag not listed above. "
             "Don't forget to link games you'll reference like <a href='https://example.com'>Link</a>.\n"
+            "The ones you chose to recommend, at the very end of your response, strictly list "
+            "their 'appid's inside the tag <recommendations>, separated by commas. "
+            "Don't write anything else inside this tag. "
+            "Example: <recommendations>123456, 789012</recommendations>.\n"
             f"Here is the list:\n{appids}"
         )
 
@@ -348,26 +356,79 @@ async def generate_and_send_summary(context: ContextTypes.DEFAULT_TYPE, day: dat
         except Exception as e:
             log.warning("AI API is down or unreachable: %s", e)
 
+    def parse_response(response: str, game_list: list, demo_list: list) -> tuple:
+        match = re.search(r'<recommendations>(.*?)</recommendations>', response, re.IGNORECASE | re.DOTALL)
+        recommended_images = []
+        recommended_games = []
+        clean_text = response
+
+        if match:
+            all_games = game_list + demo_list
+            raw_ids = match.group(1)
+            recommended_appids = [appid.strip() for appid in raw_ids.split(',') if appid.strip().isdigit()]
+
+            for appid_str in recommended_appids:
+                found_game = next((g for g in all_games if str(g.get("appid")) == appid_str), None)
+                if found_game:
+                    recommended_games.append(found_game)
+                    if found_game.get("image"):
+                        recommended_images.append(found_game["image"])
+
+            clean_text = re.sub(r'<recommendations>.*?</recommendations>', '', response,
+                                flags=re.IGNORECASE | re.DOTALL).strip()
+
+        return clean_text, recommended_images, recommended_games
+
     for chat_id, prefs in followers.items():
         if prefs["want_games"] and prefs["want_demos"] and interaction_combo:
-            text = interaction_combo.choices[0].message.content
+            text, images, games = parse_response(interaction_combo.choices[0].message.content, game_list, demo_list)
         elif prefs["want_games"] and not prefs["want_demos"] and interaction_game:
-            text = interaction_game.choices[0].message.content
+            text, images, games = parse_response(interaction_game.choices[0].message.content, game_list, [])
         elif prefs["want_demos"] and not prefs["want_games"] and interaction_demo:
-            text = interaction_demo.choices[0].message.content
+            text, images, games = parse_response(interaction_demo.choices[0].message.content, [], demo_list)
         else:
             continue
-        try:
+
+        if not images:
             await context.bot.send_message(
                 chat_id=chat_id,
                 text=text,
                 parse_mode="HTML",
-                link_preview_options = LinkPreviewOptions(
+                link_preview_options=LinkPreviewOptions(
                     is_disabled=True
                 ),
             )
+            continue
+
+        media_group = []
+        for i, img_url in enumerate(images):
+            if i == 0:
+                media_group.append(
+                    InputMediaPhoto(media=img_url, caption=text, parse_mode="HTML")
+                )
+            else:
+                media_group.append(
+                    InputMediaPhoto(media=img_url)
+                )
+
+        try:
+            await context.bot.send_media_group(
+                chat_id=chat_id,
+                media=media_group,
+            )
         except Exception as e:
             log.warning("Couldn't send summarize message in chat %s: %s", chat_id, e)
+
+        if prefs["email"]:
+            try:
+                await asyncio.to_thread(send_summary_email,
+                                            prefs["email"],
+                                            f"Steam anime releases {day}",
+                                            text,
+                                            games
+                                        )
+            except Exception as e:
+                log.warning("Couldn't send mail to %s: %s", prefs["email"], e)
 
 
 async def daily_summary(context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -381,6 +442,113 @@ async def daily_summary(context: ContextTypes.DEFAULT_TYPE) -> None:
 
     storage["last_summary_date"] = date.today().isoformat()
     save_storage(storage)
+
+
+def send_summary_email(to_email: str, subject: str, text: str, games: list[dict]) -> None:
+    if not games:
+        return
+
+    def esc(s: str) -> str:
+        return html.escape(s or "")
+
+    def card(game: dict, cid: str) -> str:
+        return f'''
+            <h2 style="color: white; margin-bottom: 10px;">{esc(game['name'])}</h2>
+            <img src="cid:{cid}" style="max-width: 100%; height: auto; display: block; border-radius: 4px;">
+            <p style='color: grey; line-height: 1.5;'>{esc(game.get('description', ''))}</p>
+            <a href='https://store.steampowered.com/app/{game['appid']}' 
+            style='display: inline-block; padding: 10px 20px; 
+            background-color: #001154; color: white; text-decoration: none; 
+            border-radius: 4px; font-weight: bold;'>Open in Steam</a>
+        '''
+
+    html_parts = ["<html><body style='font-family: Arial, sans-serif; background-color: black; padding: 20px 0;'>",
+                  "<table width='100%' max-width='600' align='center' style='max-width: 600px; margin: 0 auto; "
+                  "background-color: #1a1a1a; padding: 20px; border-radius: 8px;'>",
+                  "<tr><td>",
+                  '<table width="100%" border="0" cellspacing="0" cellpadding="0" style="margin-bottom: 15px;">']
+
+    html_parts.append(f'''
+        <tr>
+            <td colspan="2" align="center" style="padding-bottom: 10px;">{card(games[0], "game_img_0.jpg")}
+                <hr style="border: none; border-top: 1px solid grey; margin: 25px 0;">
+            </td>
+        </tr>
+    ''')
+
+    html_parts.append('<tr>')
+    html_parts.append('<td align="center" width="50%" valign="top" style="padding-right: 5px;">')
+
+    html_parts.append(card(games[1], "game_img_1.jpg") if len(games) >= 2
+                      else '''
+                        <div style="background-color: #2b2b2b; 
+                        border-radius: 4px; width: 100%; height: 140px;">&nbsp;</div>
+                      ''')
+    html_parts.append('</td>')
+
+    html_parts.append('<td align="center" width="50%" valign="top" style="padding-left: 5px;">')
+    html_parts.append(card(games[2], "game_img_2.jpg") if len(games) == 3
+                      else '''
+                        <div style="background-color: #2b2b2b; 
+                        border-radius: 4px; width: 100%; height: 140px;">&nbsp;</div>
+                      ''')
+
+    html_parts.append("</td></tr></table>")
+
+    if text:
+        html_parts.append("<h3 style='color: white;'>Summary:</h3>")
+        html_parts.append(f'''
+            <div style='background-color: #2b2b2b; 
+            padding: 15px; border-left: 4px solid #001154; color: white; line-height: 1.6;'>{text}</div>
+        ''')
+
+    # Footer
+    html_parts.append('''
+        <table width="100%" align="center" style="max-width: 600px; margin: 20px auto 0; 
+        padding: 20px; background-color: #1f354d; color: grey;
+        font-size: 12px; text-align: center; border-radius: 8px;">
+            <tr><td>
+                <p style="margin: 0 0 10px 0; 
+                color: grey;">You received this mail because you follow @SteamAnimeBot.</p>
+                <p style="margin: 0 0 10px 0;">
+                    <a href="https://t.me/SteamAnimeBot?start=unsetemail" style="color: #73bdff; 
+                    text-decoration: none;">Unfollow mail summaries</a>
+                    &nbsp;|&nbsp;
+                    <a href="https://github.com/ShuraShved/steam-anime-bot" style="color: #73bdff; 
+                    text-decoration: none;">GitHub source code</a>
+                </p>
+                <p style="margin: 15px 0 0 0; text-align: right; color: grey;">made with 
+                <span style="color: #730000;">♥</span> by ShuraShved.</p>
+            </td></tr>
+        </table>
+    ''')
+    html_parts.append("</body></html>")
+    html_body = "".join(html_parts)
+
+    files = []
+    for i, game in enumerate(games):
+        if not game.get("image"):
+            continue
+        try:
+            img_bytes = requests.get(game["image"], timeout=15).content
+            files.append(("inline", (f"game_img_{i}.jpg", img_bytes)))
+        except Exception as e:
+            log.warning("Couldn't download image for mail: %s", e)
+
+    resp = requests.post(
+        MAILGUN_URL,
+        auth=("api", MAILGUN_API_KEY),
+        data={
+            "from": f"Steam Anime Bot <mailgun@{MAILGUN_DOMAIN}>",
+            "to": to_email,
+            "subject": subject,
+            "html": html_body,
+            "text": text or "Today's anime game releases from Steam.",
+        },
+        files=files,
+        timeout=15,
+    )
+    resp.raise_for_status()
 
 
 def build_settings_keyboard(prefs: dict) -> InlineKeyboardMarkup:
@@ -429,12 +597,21 @@ async def on_toggle_pressed(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if context.args:
+        payload = context.args[0]
+
+        if payload == "unsetemail":
+            await unset_email(update, context)
+            return
+
     await update.message.reply_text("Hello! This is a bot that will send you new released anime games.\n\n"
                                     "Here is the list of all available commands:\n"
                                     "/start – 👋 Greeting message\n"
                                     "/follow – 🔒 Follow new anime game releases\n"
                                     "/unfollow – 🔓 Unfollow new anime game releases\n"
                                     "/settings – 📑 Manage your follow preferences\n"
+                                    "/setemail your@email.com – ✉️ Set email for daily summaries\n"
+                                    "/unsetemail – 🔕 Remove email for daily summaries\n"
                                     "/kawaii – 🥚")
 
 
@@ -453,7 +630,8 @@ async def follow(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             "games_cursor": max(older_games_seqs, default=0),
             "demos_cursor": max(older_demos_seqs, default=0),
             "want_games": True,
-            "want_demos": True
+            "want_demos": True,
+            "email": ""
         }
 
         save_storage(storage)
@@ -474,6 +652,44 @@ async def unfollow(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text("This user is not following.")
 
 
+async def set_email(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    chat_id = str(update.effective_chat.id)
+    storage = load_storage()
+    if chat_id not in storage["followers"]:
+        await update.message.reply_text("You need to follow to do that /follow.")
+        return
+
+    if not context.args:
+        await update.message.reply_text("Usage: /setemail your@email.com")
+        return
+
+    email = context.args[0]
+    if not EMAIL_RE.match(email):
+        await update.message.reply_text("That doesn't look like a valid email. Please check the spelling.")
+        return
+
+    storage["followers"][chat_id]["email"] = email
+    save_storage(storage)
+    await update.message.reply_text(f"All set, daily summaries will be sent to {email}.")
+
+
+async def unset_email(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    chat_id = str(update.effective_chat.id)
+    storage = load_storage()
+
+    if chat_id not in storage["followers"]:
+        await update.message.reply_text("You need to follow to do that /follow.")
+        return
+    if not storage["followers"][chat_id].get("email"):
+        await update.message.reply_text("You need to set an email first. Use /setemail your@email.com.")
+        return
+
+    email = storage["followers"][chat_id]["email"]
+    storage["followers"][chat_id]["email"] = ""
+    save_storage(storage)
+    await update.message.reply_text(f"Will no longer send daily summaries to {email}.")
+
+
 async def kawaii(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
@@ -492,6 +708,8 @@ if __name__ == '__main__':
     unfollow_handler = CommandHandler('unfollow', unfollow)
     kawaii_handler = CommandHandler('kawaii', kawaii)
     settings_handler = CommandHandler("settings", settings)
+    set_email_handler = CommandHandler("setemail", set_email)
+    unset_email_handler = CommandHandler("unsetemail", unset_email)
     toggle_button_handler = CallbackQueryHandler(on_toggle_pressed, pattern=r"^toggle:")
     application.add_handler(start_handler)
     application.add_handler(follow_handler)
@@ -499,6 +717,8 @@ if __name__ == '__main__':
     application.add_handler(unfollow_handler)
     application.add_handler(kawaii_handler)
     application.add_handler(settings_handler)
+    application.add_handler(set_email_handler)
+    application.add_handler(unset_email_handler)
     application.add_handler(toggle_button_handler)
 
     application.job_queue.run_repeating(
@@ -510,7 +730,7 @@ if __name__ == '__main__':
 
     application.job_queue.run_daily(
         daily_summary,
-        time=time(hour=17, minute=0),
+        time=time(hour=16, minute=55),
         name="daily_summary",
     )
 
