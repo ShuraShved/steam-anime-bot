@@ -13,6 +13,10 @@ from telegram.constants import ParseMode
 import requests
 from mistralai.client import Mistral
 from dotenv import load_dotenv
+import smtplib
+import ssl
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 
 
 load_dotenv()
@@ -33,9 +37,11 @@ DEMOS_CATEGORY = 10
 SEARCH_URL = "https://store.steampowered.com/search/results/"
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
-MAILGUN_API_KEY = os.environ["MAILGUN_API_KEY"]
-MAILGUN_DOMAIN = os.environ["MAILGUN_DOMAIN"]
-MAILGUN_URL = f"https://api.mailgun.net/v3/{MAILGUN_DOMAIN}/messages"
+SMTP_HOST = os.environ["SMTP_HOST"]
+SMTP_PORT = int(os.environ.get("SMTP_PORT", 465))
+SMTP_USER = os.environ["SMTP_USER"]
+SMTP_PASSWORD = os.environ["SMTP_PASSWORD"]
+SMTP_FROM = os.environ.get("SMTP_FROM", SMTP_USER)
 
 
 def load_storage() -> dict:
@@ -204,10 +210,10 @@ async def run_check_releases(context: ContextTypes.DEFAULT_TYPE) -> None:
         if info is None or info["coming_soon"]:
             continue
 
-        if info["parsed_date"] < date.today():
+        game_date = info["parsed_date"]
+        if game_date.isoformat() != date.today():
             continue
 
-        game_date = info["parsed_date"]
         seq = storage["next_seq"]
         storage["next_seq"] += 1
         released.append({
@@ -448,13 +454,18 @@ def send_summary_email(to_email: str, subject: str, text: str, games: list[dict]
     if not games:
         return
 
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = subject
+    msg["From"] = SMTP_FROM
+    msg["To"] = to_email
+
     def esc(s: str) -> str:
         return html.escape(s or "")
 
-    def card(game: dict, cid: str) -> str:
+    def card(game: dict) -> str:
         return f'''
             <h2 style="color: white; margin-bottom: 10px;">{esc(game['name'])}</h2>
-            <img src="cid:{cid}" style="max-width: 100%; height: auto; display: block; border-radius: 4px;">
+            <img src="{game["image"]}" style="max-width: 100%; height: auto; display: block; border-radius: 4px;">
             <p style='color: grey; line-height: 1.5;'>{esc(game.get('description', ''))}</p>
             <a href='https://store.steampowered.com/app/{game['appid']}' 
             style='display: inline-block; padding: 10px 20px; 
@@ -470,7 +481,7 @@ def send_summary_email(to_email: str, subject: str, text: str, games: list[dict]
 
     html_parts.append(f'''
         <tr>
-            <td colspan="2" align="center" style="padding-bottom: 10px;">{card(games[0], "game_img_0.jpg")}
+            <td colspan="2" align="center" style="padding-bottom: 10px;">{card(games[0])}
                 <hr style="border: none; border-top: 1px solid grey; margin: 25px 0;">
             </td>
         </tr>
@@ -479,7 +490,7 @@ def send_summary_email(to_email: str, subject: str, text: str, games: list[dict]
     html_parts.append('<tr>')
     html_parts.append('<td align="center" width="50%" valign="top" style="padding-right: 5px;">')
 
-    html_parts.append(card(games[1], "game_img_1.jpg") if len(games) >= 2
+    html_parts.append(card(games[1]) if len(games) >= 2
                       else '''
                         <div style="background-color: #2b2b2b; 
                         border-radius: 4px; width: 100%; height: 140px;">&nbsp;</div>
@@ -487,7 +498,7 @@ def send_summary_email(to_email: str, subject: str, text: str, games: list[dict]
     html_parts.append('</td>')
 
     html_parts.append('<td align="center" width="50%" valign="top" style="padding-left: 5px;">')
-    html_parts.append(card(games[2], "game_img_2.jpg") if len(games) == 3
+    html_parts.append(card(games[2]) if len(games) == 3
                       else '''
                         <div style="background-color: #2b2b2b; 
                         border-radius: 4px; width: 100%; height: 140px;">&nbsp;</div>
@@ -523,32 +534,12 @@ def send_summary_email(to_email: str, subject: str, text: str, games: list[dict]
         </table>
     ''')
     html_parts.append("</body></html>")
-    html_body = "".join(html_parts)
+    msg.attach(MIMEText("".join(html_parts), "html", "utf-8"))
 
-    files = []
-    for i, game in enumerate(games):
-        if not game.get("image"):
-            continue
-        try:
-            img_bytes = requests.get(game["image"], timeout=15).content
-            files.append(("inline", (f"game_img_{i}.jpg", img_bytes)))
-        except Exception as e:
-            log.warning("Couldn't download image for mail: %s", e)
-
-    resp = requests.post(
-        MAILGUN_URL,
-        auth=("api", MAILGUN_API_KEY),
-        data={
-            "from": f"Steam Anime Bot <mailgun@{MAILGUN_DOMAIN}>",
-            "to": to_email,
-            "subject": subject,
-            "html": html_body,
-            "text": text or "Today's anime game releases from Steam.",
-        },
-        files=files,
-        timeout=15,
-    )
-    resp.raise_for_status()
+    ctx = ssl.create_default_context()
+    with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, context=ctx) as server:
+        server.login(SMTP_USER, SMTP_PASSWORD)
+        server.sendmail(SMTP_FROM, [to_email], msg.as_string())
 
 
 def build_settings_keyboard(prefs: dict) -> InlineKeyboardMarkup:
