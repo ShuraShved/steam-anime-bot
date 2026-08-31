@@ -211,11 +211,11 @@ async def run_check_releases(context: ContextTypes.DEFAULT_TYPE) -> None:
             continue
 
         game_date = info["parsed_date"]
-        if game_date.isoformat() != date.today():
-            continue
-
-        seq = storage["next_seq"]
-        storage["next_seq"] += 1
+        if game_date.isoformat() != date.today().isoformat():
+            seq = 0
+        else:
+            seq = storage["next_seq"]
+            storage["next_seq"] += 1
         released.append({
             "seq": seq,
             "appid": appid,
