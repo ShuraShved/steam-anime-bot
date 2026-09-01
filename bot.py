@@ -150,7 +150,7 @@ def fetch_game_details(appid: int) -> dict | None:
     release = data.get("release_date", {}) # {'coming_soon': ?, 'date': ?}
     release_date_str = release.get("date", "coming soon") # "Aug 20, 2026" or "Q4 2026"
     parsed_date = datetime.strptime(release_date_str.strip(), "%b %d, %Y").date()
-    genres = data.get("genres")
+    genres = data.get("genres", "")
     list_genres = [genre["description"] for genre in genres]
     row_genres = ", ".join(list_genres)
 
@@ -227,6 +227,7 @@ async def run_check_releases(context: ContextTypes.DEFAULT_TYPE) -> None:
             "appid": appid,
             "type": info["type"],
             "name": info["name"],
+            "genres": info["genres"],
             "description": info["description"],
             "image": info["image"],
             "price": info["price"],
