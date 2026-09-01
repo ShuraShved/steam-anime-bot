@@ -150,6 +150,9 @@ def fetch_game_details(appid: int) -> dict | None:
     release = data.get("release_date", {}) # {'coming_soon': ?, 'date': ?}
     release_date_str = release.get("date", "coming soon") # "Aug 20, 2026" or "Q4 2026"
     parsed_date = datetime.strptime(release_date_str.strip(), "%b %d, %Y").date()
+    genres = data.get("genres")
+    list_genres = [genre["description"] for genre in genres]
+    row_genres = ", ".join(list_genres)
 
     if data.get("fullgame"):
         desc, eta = fetch_full_game(data.get("fullgame").get("appid"))
@@ -166,6 +169,7 @@ def fetch_game_details(appid: int) -> dict | None:
         "type": data.get("type"),
         "name": data.get("name", "Couldn't find name"),
         "description": description,
+        "genres": row_genres,
         "image": data.get("header_image"),
         "release_date_str": release_date_str, # full game release date or scheduled release if demo
         "parsed_date": parsed_date, # actual item release date
@@ -177,12 +181,14 @@ def fetch_game_details(appid: int) -> dict | None:
 def build_caption(appid: int, info: dict) -> str:
     name = html.escape(info["name"])
     desc = html.escape(info["description"])
+    genres = info["genres"]
     price = info["price"]
     if len(desc) > 500:
         desc = desc[:500].rsplit(" ", 1)[0] + "…"
     return (
         f"🎉 <b>{name}</b> — released!\n"
-        f"Release date: {html.escape(str(info['release_date']))}\n\n"
+        f"Release date: {html.escape(str(info['release_date']))}\n"
+        f"Genres: <i>{genres}</i>\n\n"
         f"{desc}\n\n"
         f"{price}\n\n"
         f"https://store.steampowered.com/app/{appid}"
