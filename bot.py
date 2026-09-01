@@ -311,6 +311,8 @@ async def generate_and_send_summary(context: ContextTypes.DEFAULT_TYPE, day: dat
     need_combo = any(pref["want_games"] and pref["want_demos"] for pref in followers.values())
 
     today = "today" if date.today().isoformat() == day_iso else day_iso
+    date_obj = datetime.fromisoformat(day_iso)
+    formatted_date = date_obj.strftime("%d %B %Y").lstrip("0")
 
     def build_prompt(appids):
         return (
@@ -318,8 +320,12 @@ async def generate_and_send_summary(context: ContextTypes.DEFAULT_TYPE, day: dat
             "Summarize the games and genres based on their descriptions, and pick up to 3 of the most exciting "
             "ones to recommend. First line: write the number of games and date. Like: "
             f"'5 new games dropped {today}! 🕹️🎉' or think of something alike yourself. "
-            "Second line: write the genres. "
-            "Third line: write a summary and chosen ones to recommend. Add emojis and write in a friendly tone. "
+            f"Second line: Start with today's date formatted as '{formatted_date}', mention a notable holiday or "
+            "historical event on this day, and smoothly transition to daily game updates. "
+            "Example: 'Today is 1 September 2026! On this day in 1995, 'Chrono Trigger' was "
+            "released—speaking of great games, here are today's updates!\n"
+            "Third line: write the genres. "
+            "Fourth line: write a summary and chosen ones to recommend. Add emojis and write in a friendly tone. "
             "The output will be sent using Telegram HTML parse mode. "
             "Use only these Telegram HTML tags: "
             "<b>, <strong>, <i>, <em>, <u>, <ins>, <s>, <strike>, <del>,"
@@ -446,7 +452,7 @@ async def generate_and_send_summary(context: ContextTypes.DEFAULT_TYPE, day: dat
 
 async def daily_summary(context: ContextTypes.DEFAULT_TYPE) -> None:
     storage = load_storage()
-    last_date = date.fromisoformat(storage.get("last_summary_date", date.today().isoformat()))
+    last_date = date.fromisoformat(storage.get("last_summary_date", (date.today() - timedelta(days=1)).isoformat()))
 
     d = last_date + timedelta(days=1)
     while d <= date.today():
