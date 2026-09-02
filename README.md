@@ -36,6 +36,16 @@ AI_KEY=your_mistralai_key
 
 CHECK_INTERVAL_MINUTES=60
 
+SMTP_HOST=smtp.gmail.com
+
+SMTP_PORT=465
+
+SMTP_USER=your@gmail.com
+
+SMTP_PASSWORD="your google app password"
+
+SMTP_FROM=your@gmail.com
+
 3. **Build and launch container:**
 ```bash
 docker compose up --build
