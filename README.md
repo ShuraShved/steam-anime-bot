@@ -12,9 +12,10 @@ smart recommendations.
 **Email Digests [NEW!]:** Users can now link their email to receive daily summaries straight to their inbox.
 
 ## Built with
-- [python-telegram-bot](https://python-telegram-bot.org/)
-- [Mistral AI](https://mistral.ai/) (AI summaries)
-- [Docker & Docker Compose](https://www.docker.com/)
+* **[python-telegram-bot](https://github.com/python-telegram-bot/python-telegram-bot)** – Telegram API framework
+* **[Mistral API](https://mistral.ai/)** – AI-generated daily summaries and recommendations
+* **Google SMTP** – Sending automated daily digests to user emails
+* **Docker & Docker Compose** – Containerization and deployment
 
 ## Setup and Launch
 
