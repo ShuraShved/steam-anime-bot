@@ -569,6 +569,10 @@ def build_settings_keyboard(prefs: dict) -> InlineKeyboardMarkup:
 async def settings(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     storage = load_storage()
     chat_id = str(update.effective_chat.id)
+    if chat_id not in storage["followers"]:
+        await update.message.reply_text("You need to follow to do that /follow.")
+        return
+    
     prefs = storage["followers"].get(chat_id, {})
     await update.message.reply_text("Manage your follows:", reply_markup=build_settings_keyboard(prefs))
 
