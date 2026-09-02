@@ -15,7 +15,7 @@ smart recommendations.
 * **[python-telegram-bot](https://github.com/python-telegram-bot/python-telegram-bot)** – Telegram API framework
 * **[Mistral API](https://mistral.ai/)** – AI-generated daily summaries and recommendations
 * **Google SMTP** – Sending automated daily digests to user emails
-* **Docker & Docker Compose** – Containerization and deployment
+* **Docker & Docker Compose**(https://www.docker.com/) – Containerization and deployment
 
 ## Setup and Launch
 
