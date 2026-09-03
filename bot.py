@@ -5,9 +5,13 @@ import json
 import html
 from datetime import datetime, date, time, timedelta
 import os
+import stat
+import tempfile
+import subprocess
 
 import logging
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, LinkPreviewOptions, InputMediaPhoto
+from telegram import (Update, InlineKeyboardButton, InlineKeyboardMarkup, LinkPreviewOptions,
+                      InputMediaPhoto, InputMediaVideo)
 from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, CallbackQueryHandler
 from telegram.constants import ParseMode
 import requests
@@ -59,6 +63,43 @@ def load_storage() -> dict:
 
 def save_storage(data: dict) -> None:
     STORAGE_PATH.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def ensure_executable(filepath: str):
+    if os.path.exists(filepath):
+        st = os.stat(filepath)
+        os.chmod(filepath, st.st_mode | stat.S_IEXEC)
+
+ensure_executable("./ffmpeg")
+ensure_executable("./ffprobe")
+
+
+def download_and_compress_trailer(hls_url: str, target_mb: int = 15) -> str | None:
+    tmp_out = tempfile.NamedTemporaryFile(suffix="_compressed.mp4", delete=False).name
+    try:
+        duration = float(subprocess.run(
+            ["./ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", hls_url],
+            capture_output=True, text=True, check=True, timeout=30,
+        ).stdout.strip())
+
+        audio_kbps = 96
+        video_kbps = max(int(target_mb * 8 * 1024 / duration) - audio_kbps, 150)
+
+        subprocess.run([
+            "./ffmpeg", "-y", "-loglevel", "error", "-i", hls_url,
+            "-vf", "scale='min(854,iw)':-2",
+            "-c:v", "libx264", "-preset", "fast",
+            "-b:v", f"{video_kbps}k", "-maxrate", f"{video_kbps}k", "-bufsize", f"{video_kbps * 2}k",
+            "-c:a", "aac", "-b:a", f"{audio_kbps}k",
+            "-movflags", "+faststart",
+            "-fs", f"{target_mb + 2}M",
+            tmp_out,
+        ], check=True, timeout=180)
+
+        return tmp_out
+    except Exception as e:
+        log.warning("Couldn't download/compress trailer: %s", e)
+        return None
 
 
 def fetch_released_anime_games(category: int = GAMES_CATEGORY) -> list[int]:
@@ -153,6 +194,11 @@ def fetch_game_details(appid: int) -> dict | None:
     genres = data.get("genres", "")
     list_genres = [genre["description"] for genre in genres]
     row_genres = ", ".join(list_genres)
+    movies = data.get("movies", [])
+    trailer_url = None
+    if movies:
+        trailer = movies[0]
+        trailer_url = trailer.get("hls_h264")
 
     if data.get("fullgame"):
         desc, eta = fetch_full_game(data.get("fullgame").get("appid"))
@@ -170,6 +216,7 @@ def fetch_game_details(appid: int) -> dict | None:
         "name": data.get("name", "Couldn't find name"),
         "description": description,
         "genres": row_genres,
+        "trailer": trailer_url,
         "image": data.get("header_image"),
         "release_date_str": release_date_str, # full game release date or scheduled release if demo
         "parsed_date": parsed_date, # actual item release date
@@ -179,8 +226,10 @@ def fetch_game_details(appid: int) -> dict | None:
 
 
 def build_caption(appid: int, info: dict) -> str:
-    name = html.escape(info["name"])
-    desc = html.escape(info["description"])
+    raw_name = html.unescape(info["name"])
+    raw_desc = html.unescape(info["description"])
+    name = html.escape(raw_name, quote=False)
+    desc = html.escape(raw_desc, quote=False)
     genres = info["genres"]
     price = info["price"]
     if len(desc) > 500:
@@ -228,6 +277,7 @@ async def run_check_releases(context: ContextTypes.DEFAULT_TYPE) -> None:
             "type": info["type"],
             "name": info["name"],
             "genres": info["genres"],
+            "trailer": info["trailer"],
             "description": info["description"],
             "image": info["image"],
             "price": info["price"],
@@ -264,27 +314,50 @@ async def deliver_pending(context: ContextTypes.DEFAULT_TYPE, chat_id: str | Non
 
         max_game_seq_sent = games_cursor
         max_demo_seq_sent = demos_cursor
+
         for app in pending:
             caption = build_caption(app["appid"], app)
-            try:
-                if pref_games and app["type"] == "game":
-                    if app["image"]:
-                        await context.bot.send_photo(chat_id, photo=app["image"], caption=caption,
-                                                     parse_mode=ParseMode.HTML)
-                    else:
-                        await context.bot.send_message(chat_id, caption, parse_mode=ParseMode.HTML)
-                    max_game_seq_sent = app["seq"]
 
-                elif pref_demos and app["type"] == "demo":
-                    if app["image"]:
-                        await context.bot.send_photo(chat_id, photo=app["image"], caption=caption,
-                                                     parse_mode=ParseMode.HTML)
-                    else:
-                        await context.bot.send_message(chat_id, caption, parse_mode=ParseMode.HTML)
+            should_send = (
+                (pref_games and app["type"] == "game") or
+                (pref_demos and app["type"] == "demo")
+            )
+
+            if should_send:
+                if app["image"] and app["trailer"]:
+                    trailer_path = await asyncio.to_thread(download_and_compress_trailer, app["trailer"])
+                    if trailer_path:
+                        try:
+                            with open(trailer_path, "rb") as video_file:
+                                media_group = [
+                                    InputMediaPhoto(
+                                        media=app["image"],
+                                        caption=caption,
+                                        parse_mode=ParseMode.HTML
+                                    ),
+                                    InputMediaVideo(
+                                        media=video_file
+                                    )
+                                ]
+                                await context.bot.send_media_group(
+                                    chat_id=chat_id,
+                                    media=media_group
+                                )
+                        finally:
+                            os.remove(trailer_path)
+                elif app["image"]:
+                    await context.bot.send_photo(chat_id, photo=app["image"], caption=caption,
+                                                 parse_mode=ParseMode.HTML)
+                else:
+                    await context.bot.send_message(chat_id, caption, parse_mode=ParseMode.HTML)
+
+                if app["type"] == "game":
+                    max_game_seq_sent = app["seq"]
+                elif app["type"] == "demo":
                     max_demo_seq_sent = app["seq"]
-            except Exception as e:
-                log.warning("Couldn't send message in chat %s: %s", chat_id, e)
-                break
+            # except Exception as e:
+            #     log.warning("Couldn't send message in chat %s: %s", chat_id, e)
+            #     break
 
         followers[chat_id]["games_cursor"] = max_game_seq_sent
         followers[chat_id]["demos_cursor"] = max_demo_seq_sent
