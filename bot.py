@@ -185,8 +185,11 @@ def build_caption(appid: int, info: dict) -> str:
     price = info["price"]
     if len(desc) > 500:
         desc = desc[:500].rsplit(" ", 1)[0] + "…"
+    if info["type"] == "demo":
+        header = f"<b>{name}</b>\n"
+    else: header = f"🎉 <b>{name}</b> — released!\n"
     return (
-        f"🎉 <b>{name}</b> — released!\n"
+        f"{header}"
         f"Release date: {html.escape(str(info['release_date']))}\n"
         f"Genres: <i>{genres}</i>\n\n"
         f"{desc}\n\n"
