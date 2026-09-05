@@ -3,6 +3,7 @@ import re
 from pathlib import Path
 import json
 import html
+import time
 from datetime import datetime, date, time, timedelta
 import os
 
@@ -296,6 +297,23 @@ async def deliver_pending(context: ContextTypes.DEFAULT_TYPE, chat_id: str | Non
     save_storage(storage)
 
 
+def call_api_with_retry(client: Mistral, model: str, messages: list, max_retries: int = 5,
+                             base_delay: float = 2.0):
+
+    for attempt in range(max_retries):
+        try:
+            return client.chat.complete(model=model, messages=messages)
+        except Exception as e:
+            is_rate_limited = "429" in str(e) or "rate_limit" in str(e).lower()
+            if is_rate_limited and attempt < max_retries - 1:
+                delay = base_delay * (2 ** attempt)
+                log.warning("AI API rate limited (attempt %d/%d), retrying in %.1fs",
+                            attempt + 1, max_retries, delay)
+                time.sleep(delay)
+                continue
+            raise
+
+
 async def generate_and_send_summary(context: ContextTypes.DEFAULT_TYPE, day: date) -> None:
     storage = load_storage()
     client = Mistral(api_key=os.getenv("AI_KEY"))
@@ -349,31 +367,26 @@ async def generate_and_send_summary(context: ContextTypes.DEFAULT_TYPE, day: dat
     interaction_game = interaction_demo = interaction_combo = None
     if need_games and game_list:
         try:
-            interaction_game = client.chat.complete(
-                model="mistral-medium-latest",
-                messages=[
-                    {"role": "user", "content": build_prompt(game_list)}
-                ],
+            interaction_game = await asyncio.to_thread(
+                call_api_with_retry, client, "mistral-medium-latest",
+                [{"role": "user", "content": build_prompt(game_list)}],
             )
         except Exception as e:
             log.warning("AI API is down or unreachable: %s", e)
+        await asyncio.sleep(1.5)
     if need_demos and demo_list:
         try:
-            interaction_demo = client.chat.complete(
-                model="mistral-medium-latest",
-                messages=[
-                    {"role": "user", "content": build_prompt(demo_list)}
-                ],
+            interaction_demo = await asyncio.to_thread(
+                call_api_with_retry, client, "mistral-medium-latest",
+                [{"role": "user", "content": build_prompt(demo_list)}],
             )
         except Exception as e:
             log.warning("AI API is down or unreachable: %s", e)
     if need_combo and (game_list or demo_list):
         try:
-            interaction_combo = client.chat.complete(
-                model="mistral-medium-latest",
-                messages=[
-                    {"role": "user", "content": build_prompt(game_list + demo_list)}
-                ],
+            interaction_combo = await asyncio.to_thread(
+                call_api_with_retry, client, "mistral-medium-latest",
+                [{"role": "user", "content": build_prompt(game_list + demo_list)}],
             )
         except Exception as e:
             log.warning("AI API is down or unreachable: %s", e)
