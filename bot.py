@@ -149,7 +149,7 @@ def fetch_game_details(appid: int) -> dict | None:
     data = payload["data"]
     description = data.get("short_description", "")
     release = data.get("release_date", {}) # {'coming_soon': ?, 'date': ?}
-    release_date_str = release.get("date", "coming soon") # "Aug 20, 2026" or "Q4 2026"
+    release_date_str = release.get("date", "coming soon") # "Aug 20, 2026"
     parsed_date = datetime.strptime(release_date_str.strip(), "%b %d, %Y").date()
     genres = data.get("genres", "")
     list_genres = [genre["description"] for genre in genres]
@@ -158,9 +158,9 @@ def fetch_game_details(appid: int) -> dict | None:
     if data.get("fullgame"):
         desc, eta = fetch_full_game(data.get("fullgame").get("appid"))
         description = desc
-        release_date_str = "ETA: " + eta
+        release_date_str = "ETA: " + eta # "Q4 2026"
 
-    if data["is_free"] == "true":
+    if data.get("is_free"):
         price_formatted = "Free"
     else:
         price = data.get("price_overview", {})
@@ -737,7 +737,6 @@ if __name__ == '__main__':
     toggle_button_handler = CallbackQueryHandler(on_toggle_pressed, pattern=r"^toggle:")
     application.add_handler(start_handler)
     application.add_handler(follow_handler)
-    application.add_handler(unfollow_handler)
     application.add_handler(unfollow_handler)
     application.add_handler(kawaii_handler)
     application.add_handler(settings_handler)
