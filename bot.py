@@ -3,7 +3,6 @@ import re
 from pathlib import Path
 import json
 import html
-import time
 from datetime import datetime, date, time, timedelta
 import os
 
@@ -12,8 +11,8 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, LinkPre
 from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, CallbackQueryHandler
 from telegram.constants import ParseMode
 import requests
-from mistralai.client import Mistral
 from dotenv import load_dotenv
+from openai import OpenAI
 import smtplib
 import ssl
 from email.mime.multipart import MIMEMultipart
@@ -36,6 +35,16 @@ ANIME_TAG_ID = 4085
 GAMES_CATEGORY = 998
 DEMOS_CATEGORY = 10
 SEARCH_URL = "https://store.steampowered.com/search/results/"
+
+OPENROUTER_API_KEY = os.environ["OPENROUTER_API_KEY"]
+FREE_MODELS = [
+    "minimax/minimax-m3:free",
+    "nvidia/nemotron-3.5-lightning:free",
+]
+openrouter_client = OpenAI(
+    base_url="https://openrouter.ai/api/v1",
+    api_key=OPENROUTER_API_KEY,
+)
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 SMTP_HOST = os.environ["SMTP_HOST"]
@@ -154,7 +163,6 @@ def fetch_game_details(appid: int) -> dict | None:
     genres = data.get("genres", "")
     list_genres = [genre["description"] for genre in genres]
     row_genres = ", ".join(list_genres)
-
     if data.get("fullgame"):
         desc, eta = fetch_full_game(data.get("fullgame").get("appid"))
         description = desc
@@ -297,26 +305,16 @@ async def deliver_pending(context: ContextTypes.DEFAULT_TYPE, chat_id: str | Non
     save_storage(storage)
 
 
-def call_api_with_retry(client: Mistral, model: str, messages: list, max_retries: int = 5,
-                             base_delay: float = 2.0):
-
-    for attempt in range(max_retries):
-        try:
-            return client.chat.complete(model=model, messages=messages)
-        except Exception as e:
-            is_rate_limited = "429" in str(e) or "rate_limit" in str(e).lower()
-            if is_rate_limited and attempt < max_retries - 1:
-                delay = base_delay * (2 ** attempt)
-                log.warning("AI API rate limited (attempt %d/%d), retrying in %.1fs",
-                            attempt + 1, max_retries, delay)
-                time.sleep(delay)
-                continue
-            raise
+def call_api(messages: list, models: list = FREE_MODELS):
+    return openrouter_client.chat.completions.create(
+        model=models[0],
+        messages=messages,
+        extra_body={"models": models},
+    )
 
 
 async def generate_and_send_summary(context: ContextTypes.DEFAULT_TYPE, day: date) -> None:
     storage = load_storage()
-    client = Mistral(api_key=os.getenv("AI_KEY"))
     released = storage.get("released_appids", [])
 
     day_iso = day.isoformat()
@@ -346,7 +344,11 @@ async def generate_and_send_summary(context: ContextTypes.DEFAULT_TYPE, day: dat
             "Example: 'Today is 1 September 2026! On this day in 1995, 'Chrono Trigger' was "
             "released—speaking of great games, here are today's updates!\n"
             "Third line: write the genres. "
-            "Fourth line: write a summary and chosen ones to recommend. Add emojis and write in a friendly tone. "
+            "Fourth line: write a summary and chosen ones to recommend. "
+            "On the last line add the recommended games as a single line separated by vertical bars (|), "
+            "formatted as HTML links. Use this exact structure: "
+            "<a href='URL'>Game 1</a> | <a href='URL'>Game 2</a> | <a href='URL'>Game 3</a>\n"
+            "Add relevant emojis, do not exaggerate or spam them, and write in a friendly tone. "
             "The output will be sent using Telegram HTML parse mode. "
             "Use only these Telegram HTML tags: "
             "<b>, <strong>, <i>, <em>, <u>, <ins>, <s>, <strike>, <del>,"
@@ -361,6 +363,7 @@ async def generate_and_send_summary(context: ContextTypes.DEFAULT_TYPE, day: dat
             "their 'appid's inside the tag <recommendations>, separated by commas. "
             "Don't write anything else inside this tag. "
             "Example: <recommendations>123456, 789012</recommendations>.\n"
+            "Your total output is limited to 1024 characters.\n"
             f"Here is the list:\n{appids}"
         )
 
@@ -368,7 +371,7 @@ async def generate_and_send_summary(context: ContextTypes.DEFAULT_TYPE, day: dat
     if need_games and game_list:
         try:
             interaction_game = await asyncio.to_thread(
-                call_api_with_retry, client, "mistral-medium-latest",
+                call_api,
                 [{"role": "user", "content": build_prompt(game_list)}],
             )
         except Exception as e:
@@ -377,7 +380,7 @@ async def generate_and_send_summary(context: ContextTypes.DEFAULT_TYPE, day: dat
     if need_demos and demo_list:
         try:
             interaction_demo = await asyncio.to_thread(
-                call_api_with_retry, client, "mistral-medium-latest",
+                call_api,
                 [{"role": "user", "content": build_prompt(demo_list)}],
             )
         except Exception as e:
@@ -385,7 +388,7 @@ async def generate_and_send_summary(context: ContextTypes.DEFAULT_TYPE, day: dat
     if need_combo and (game_list or demo_list):
         try:
             interaction_combo = await asyncio.to_thread(
-                call_api_with_retry, client, "mistral-medium-latest",
+                call_api,
                 [{"role": "user", "content": build_prompt(game_list + demo_list)}],
             )
         except Exception as e:
@@ -416,11 +419,14 @@ async def generate_and_send_summary(context: ContextTypes.DEFAULT_TYPE, day: dat
 
     for chat_id, prefs in followers.items():
         if prefs["want_games"] and prefs["want_demos"] and interaction_combo:
-            text, images, games = parse_response(interaction_combo.choices[0].message.content, game_list, demo_list)
+            content = interaction_combo.choices[0].message.content
+            text, images, games = parse_response(content, game_list, demo_list)
         elif prefs["want_games"] and not prefs["want_demos"] and interaction_game:
-            text, images, games = parse_response(interaction_game.choices[0].message.content, game_list, [])
+            content = interaction_game.choices[0].message.content
+            text, images, games = parse_response(content, game_list, [])
         elif prefs["want_demos"] and not prefs["want_games"] and interaction_demo:
-            text, images, games = parse_response(interaction_demo.choices[0].message.content, [], demo_list)
+            content = interaction_demo.choices[0].message.content
+            text, images, games = parse_response(content, [], demo_list)
         else:
             continue
 
@@ -474,6 +480,8 @@ async def daily_summary(context: ContextTypes.DEFAULT_TYPE) -> None:
     while d <= date.today():
         await generate_and_send_summary(context, d)
         d += timedelta(days=1)
+        if d <= date.today():
+            await asyncio.sleep(5)
 
     storage["last_summary_date"] = date.today().isoformat()
     save_storage(storage)
@@ -539,7 +547,8 @@ def send_summary_email(to_email: str, subject: str, text: str, games: list[dict]
         html_parts.append("<h3 style='color: white;'>Summary:</h3>")
         html_parts.append(f'''
             <div style='background-color: #2b2b2b; 
-            padding: 15px; border-left: 4px solid #001154; color: white; line-height: 1.6;'>{text}</div>
+            padding: 15px; border-left: 4px solid #001154; color: white; line-height: 1.6; 
+            white-space: pre-wrap;'>{text}</div>
         ''')
 
     # Footer
@@ -588,7 +597,7 @@ async def settings(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if chat_id not in storage["followers"]:
         await update.message.reply_text("You need to follow to do that /follow.")
         return
-    
+
     prefs = storage["followers"].get(chat_id, {})
     await update.message.reply_text("Manage your follows:", reply_markup=build_settings_keyboard(prefs))
 
@@ -753,7 +762,7 @@ if __name__ == '__main__':
 
     application.job_queue.run_daily(
         daily_summary,
-        time=time(hour=17, minute=0),
+        time=time(hour=17, minute=42),
         name="daily_summary",
     )
 
