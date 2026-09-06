@@ -13,7 +13,7 @@ smart recommendations.
 
 ## Built with
 * **[python-telegram-bot](https://github.com/python-telegram-bot/python-telegram-bot)** – Telegram API framework
-* **[Mistral API](https://mistral.ai/)** – AI-generated daily summaries and recommendations
+* **[OpenRouter API](https://openrouter.ai/)** – AI-generated daily summaries and recommendations (via OpenAI SDK)
 * **Google SMTP** – Sending automated daily digests to user emails
 * **[Docker & Docker Compose](https://www.docker.com/)** – Containerization and deployment
 
@@ -33,7 +33,7 @@ and add your API tokens:
 
 BOT_TOKEN=your_telegram_bot_token
 
-AI_KEY=your_mistralai_key
+OPENROUTER_API_KEY=your_openrouter_api_key
 
 CHECK_INTERVAL_MINUTES=60
 
