@@ -159,7 +159,10 @@ def fetch_game_details(appid: int) -> dict | None:
     description = data.get("short_description", "")
     release = data.get("release_date", {}) # {'coming_soon': ?, 'date': ?}
     release_date_str = release.get("date", "coming soon") # "Aug 20, 2026"
-    parsed_date = datetime.strptime(release_date_str.strip(), "%b %d, %Y").date()
+    try:
+        parsed_date = datetime.strptime(release_date_str.strip(), "%b %d, %Y").date()
+    except (ValueError, AttributeError):
+        parsed_date = None
     genres = data.get("genres", "")
     list_genres = [genre["description"] for genre in genres]
     row_genres = ", ".join(list_genres)
@@ -225,7 +228,7 @@ async def run_check_releases(context: ContextTypes.DEFAULT_TYPE) -> None:
         info = await asyncio.to_thread(fetch_game_details, appid)
         await asyncio.sleep(1.5)
 
-        if info is None or info["coming_soon"]:
+        if info is None or info["coming_soon"] or info["parsed_date"] is None:
             continue
 
         game_date = info["parsed_date"]
@@ -762,7 +765,7 @@ if __name__ == '__main__':
 
     application.job_queue.run_daily(
         daily_summary,
-        time=time(hour=17, minute=42),
+        time=time(hour=17, minute=0),
         name="daily_summary",
     )
 
