@@ -1,22 +1,34 @@
 import asyncio
-import re
-from pathlib import Path
-import json
-import html
-from datetime import datetime, date, time, timedelta
-import os
-
-import logging
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, LinkPreviewOptions, InputMediaPhoto
-from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, CallbackQueryHandler
-from telegram.constants import ParseMode
-import requests
-from dotenv import load_dotenv
-from openai import OpenAI
-import smtplib
-import ssl
+from datetime import date, datetime, time, timedelta
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+import html
+import json
+import logging
+import os
+from pathlib import Path
+import re
+import smtplib
+import ssl
+
+from dotenv import load_dotenv
+from openai import OpenAI
+import requests
+from telegram import (
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    InputMediaPhoto,
+    LinkPreviewOptions,
+    Update,
+)
+from telegram.constants import ParseMode
+from telegram.error import BadRequest
+from telegram.ext import (
+    ApplicationBuilder,
+    CallbackQueryHandler,
+    CommandHandler,
+    ContextTypes,
+)
 
 
 load_dotenv()
@@ -38,7 +50,7 @@ SEARCH_URL = "https://store.steampowered.com/search/results/"
 
 OPENROUTER_API_KEY = os.environ["OPENROUTER_API_KEY"]
 FREE_MODELS = [
-    "minimax/minimax-m3:free",
+    "nvidia/nemotron-3-super-120b-a12b:free",
     "nvidia/nemotron-3.5-lightning:free",
 ]
 openrouter_client = OpenAI(
@@ -351,17 +363,27 @@ async def generate_and_send_summary(context: ContextTypes.DEFAULT_TYPE, day: dat
             "On the last line add the recommended games as a single line separated by vertical bars (|), "
             "formatted as HTML links. Use this exact structure: "
             "<a href='URL'>Game 1</a> | <a href='URL'>Game 2</a> | <a href='URL'>Game 3</a>\n"
+            "CRITICAL FORMATTING & STRUCTURE RULES:"
+            "- Separate each section with an empty line (press Enter twice between sections). "
+            "Make sure section prefixes are always bold: "
+            "* Line 3 MUST start with: <b>Genres:</b> "
+            "* Line 4 MUST start with: <b>Summary:</b>. "
             "Add relevant emojis, do not exaggerate or spam them, and write in a friendly tone. "
             "The output will be sent using Telegram HTML parse mode. "
             "Use only these Telegram HTML tags: "
-            "<b>, <strong>, <i>, <em>, <u>, <ins>, <s>, <strike>, <del>,"
-            "<code>, <pre>, <a href='URL'>, and <blockquote>. "
+            "<b>text</b>, <strong>text</strong>, <i>text</i>, <em>text</em>, <u>text</u>, <ins>text</ins>,\n"
+            "<s>text</s>, <strike>text</strike>, <del>text</del>, <code>code</code>, <pre>code</pre>,\n"
+            "<a href='URL'>text</a>, and <blockquote>text</blockquote>.\n"
+            "- CRITICAL: Every opening tag MUST have its matching closing tag! "
             "Never use: "
             "<span>, <div>, <p>, <br>, <font>, <style>, <section>, "
             "Markdown syntax, CSS, or arbitrary HTML attributes. "
+            "Never wrap the entire response in <pre>, <code>, <blockquote>, or Markdown code blocks (```). "
             "Output only the final message. Do not output explanations, "
             "HTML code fences, or any tag not listed above. "
             "Don't forget to link games you'll reference like <a href='https://example.com'>Link</a>.\n"
+            "Keep your response concise (strictly under 1024 characters) so that all text, links, and tags are "
+            "fully finished and never truncated!\n\n"
             "The ones you chose to recommend, at the very end of your response, strictly list "
             "their 'appid's inside the tag <recommendations>, separated by commas. "
             "Don't write anything else inside this tag. "
@@ -434,14 +456,24 @@ async def generate_and_send_summary(context: ContextTypes.DEFAULT_TYPE, day: dat
             continue
 
         if not images:
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text=text,
-                parse_mode="HTML",
-                link_preview_options=LinkPreviewOptions(
-                    is_disabled=True
-                ),
-            )
+            try:
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text=text,
+                    parse_mode="HTML",
+                    link_preview_options=LinkPreviewOptions(
+                        is_disabled=True
+                    ),
+                )
+            except BadRequest as e:
+                if "Can't parse entities" in str(e):
+                    await context.bot.send_message(
+                        chat_id=chat_id,
+                        text=text,
+                        link_preview_options=LinkPreviewOptions(is_disabled=True),
+                    )
+                else:
+                    log.warning("Couldn't send summarize message in chat %s: %s", chat_id, e)
             continue
 
         media_group = []
@@ -460,8 +492,15 @@ async def generate_and_send_summary(context: ContextTypes.DEFAULT_TYPE, day: dat
                 chat_id=chat_id,
                 media=media_group,
             )
-        except Exception as e:
-            log.warning("Couldn't send summarize message in chat %s: %s", chat_id, e)
+        except BadRequest as e:
+            if "Can't parse entities" in str(e):
+                media_group[0].parse_mode = None
+                await context.bot.send_media_group(
+                    chat_id=chat_id,
+                    media=media_group,
+                )
+            else:
+                log.warning("Couldn't send summarize message in chat %s: %s", chat_id, e)
 
         if prefs["email"]:
             try:
