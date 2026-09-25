@@ -50,6 +50,7 @@ SEARCH_URL = "https://store.steampowered.com/search/results/"
 
 OPENROUTER_API_KEY = os.environ["OPENROUTER_API_KEY"]
 FREE_MODELS = [
+    "nvidia/nemotron-3-ultra-550b-a55b:free",
     "nvidia/nemotron-3-super-120b-a12b:free",
     "nvidia/nemotron-3.5-lightning:free",
 ]
@@ -178,10 +179,12 @@ def fetch_game_details(appid: int) -> dict | None:
     genres = data.get("genres", "")
     list_genres = [genre["description"] for genre in genres]
     row_genres = ", ".join(list_genres)
-    if data.get("fullgame"):
-        desc, eta = fetch_full_game(data.get("fullgame").get("appid"))
-        description = desc
-        release_date_str = "ETA: " + eta # "Q4 2026"
+    if (data.get("fullgame") or {}).get("appid"):
+        full_res = fetch_full_game(data.get("fullgame").get("appid"))
+        if full_res:
+            desc, eta = full_res
+            description = desc
+            release_date_str = "ETA: " + eta # "Q4 2026"
 
     if data.get("is_free"):
         price_formatted = "Free"
