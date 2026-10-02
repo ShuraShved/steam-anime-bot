@@ -29,7 +29,7 @@ from telegram.ext import (
     CommandHandler,
     ContextTypes,
 )
-
+import db
 
 load_dotenv()
 
@@ -39,6 +39,8 @@ logging.basicConfig(
 )
 logging.getLogger("httpx").setLevel(logging.WARNING)
 log = logging.getLogger("steam_anime_bot")
+
+WEBAPP_URL = os.environ["WEBAPP_URL"]
 
 BASE_DIR = Path(__file__).resolve().parent
 STORAGE_PATH = BASE_DIR / "storage.json"
@@ -385,13 +387,13 @@ async def generate_and_send_summary(context: ContextTypes.DEFAULT_TYPE, day: dat
             "Output only the final message. Do not output explanations, "
             "HTML code fences, or any tag not listed above. "
             "Don't forget to link games you'll reference like <a href='https://example.com'>Link</a>.\n"
-            "Keep your response concise (strictly under 1024 characters) so that all text, links, and tags are "
+            "Keep your response concise (strictly under 950 characters) so that all text, links, and tags are "
             "fully finished and never truncated!\n\n"
             "The ones you chose to recommend, at the very end of your response, strictly list "
             "their 'appid's inside the tag <recommendations>, separated by commas. "
             "Don't write anything else inside this tag. "
             "Example: <recommendations>123456, 789012</recommendations>.\n"
-            "Your total output is limited to 1024 characters.\n"
+            "Your total output is limited to 950 characters.\n"
             f"Here is the list:\n{appids}"
         )
 

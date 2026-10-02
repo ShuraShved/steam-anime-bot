@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Mini App</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+    body {
+        font-family: sans-serif;
+        padding: 16px;
+        background: var(--tg-theme-bg-color, #fff);
+        color: var(--tg-theme-text-color, #000);
+    }
+    table { border-collapse: collapse; width: 100%; margin-top: 16px; }
+    th, td { text-align: left; padding: 8px; border-bottom: 1px solid #8884; }
+    </style>
+</head>
+<body>
+    <h2 id="greeting">Loading...</h2>
+
+    <table>
+        <thead><tr><th>Game</th><th>Genre</th></tr></thead>
+        <tbody id="games"></tbody>
+    </table>
+
+    <script>
+        const tg = window.Telegram.WebApp;
+        tg.ready();
+
+        fetch("/api/hello", { headers: { "X-Init-Data": tg.initData } })
+            .then(async (res) => {
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || "Error");
+            return data;
+        })
+            .then((data) => {
+            document.getElementById("greeting").textContent = data.greeting;
+            const tbody = document.getElementById("games");
+            for (const g of data.games) {
+                const tr = document.createElement("tr");
+                for (const text of [g.title, g.genre || ""]) {
+                    const td = document.createElement("td");
+                    td.textContent = text;
+                    tr.appendChild(td);
+                }
+                tbody.appendChild(tr);
+            }
+        })
+        .catch((err) => {
+            document.getElementById("greeting").textContent = err.message;
+        });
+    </script>
+</body>
+</html>
