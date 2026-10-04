@@ -227,7 +227,7 @@ async function loadFavorites() {
     statusEl.textContent = "Loading…";
     appsList.replaceChildren();
     try {
-    const { apps } = await api(`/api/favorite`, { method: 'GET', signal: controller.signal });
+    const { favorites } = await api(`/api/favorite`, { method: 'GET', signal: controller.signal });
     statusEl.textContent = apps.length ? "" : "No favorites.";
     appsList.replaceChildren(...apps.map(renderApp));
     } catch (err) {
