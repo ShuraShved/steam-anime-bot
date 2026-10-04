@@ -228,8 +228,8 @@ async function loadFavorites() {
     appsList.replaceChildren();
     try {
     const { favorites } = await api(`/api/favorite`, { method: 'GET', signal: controller.signal });
-    statusEl.textContent = apps.length ? "" : "No favorites.";
-    appsList.replaceChildren(...apps.map(renderApp));
+    statusEl.textContent = favorites.length ? "" : "No favorites.";
+    appsList.replaceChildren(...favorites.map(renderApp));
     } catch (err) {
     if (err.name === "AbortError") return;
     statusEl.textContent = err.message;
