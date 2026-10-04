@@ -11,7 +11,7 @@ app = Flask(__name__)
 @app.get("/api/hello")
 @require_user
 def hello():
-    return jsonify(greeting=f"Hello, {g.user.get('first_name', 'friend')}!")
+    return jsonify(greeting=f"Hello, {g.user.get('first_name', '')}!")
 
 
 @app.get("/api/apps")
@@ -40,6 +40,15 @@ def favorite():
     if not db.set_favorite(db_user_id, app_id, is_fav):
         return jsonify(error="Game not found."), 404
     return jsonify(id=app_id, favorite=is_fav)
+
+
+@app.get("/api/favorite")
+@require_user
+def show_favorites():
+    db_user_id = db.get_db_user_id(g.user["id"])
+    if not db_user_id:
+        return jsonify(favorites=[])
+    return jsonify(favorites=db.get_favorites(db_user_id))
 
 
 @app.errorhandler(500)

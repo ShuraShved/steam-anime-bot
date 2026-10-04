@@ -76,3 +76,18 @@ def set_favorite(db_user_id: int, app_id: int, favorite: bool) -> bool:
     except psycopg2.errors.ForeignKeyViolation:
         return False
     return True
+
+def get_favorites(db_user_id: int):
+    with cursor() as cur:
+        cur.execute(
+            """
+            SELECT a.id, a.app_id, a.title, a.type, a.genres, a.price, a.image, a.link,
+                   TRUE AS is_favorite
+            FROM appids a
+            JOIN favorites f ON a.id = f.app_id
+            WHERE f.user_id = %s
+            ORDER BY f.created_at DESC
+            """,
+            (db_user_id,),
+        )
+        return cur.fetchall()

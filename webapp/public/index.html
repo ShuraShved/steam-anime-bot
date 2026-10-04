@@ -14,6 +14,7 @@ body {
   color: var(--tg-theme-text-color, #000);
 }
 h1 { font-size: 20px; margin: 0 0 20px; }
+#favorites { display: none; }
 h2 { font-size: 17px; margin: 0 0 8px; }
 #datePicker {
   width: 100%; padding: 10px 12px; font-size: 16px;
@@ -65,7 +66,10 @@ h2 { font-size: 17px; margin: 0 0 8px; }
 </style>
 </head>
 <body>
-<h1 id="greeting">Loading…</h1>
+<div>
+    <h1 id="greeting">Loading…</h1>
+    <button onclick="loadFavorites()" id="favorites">My faves ★</button>
+</div>
 
 <h2>Release radar</h2>
 <input type="date" id="datePicker">
@@ -78,6 +82,7 @@ tg.ready();
 tg.expand();
 
 const greeting = document.getElementById("greeting");
+const favorites = document.getElementById("favorites");
 const datePicker = document.getElementById("datePicker");
 const statusEl = document.getElementById("status");
 const appsList = document.getElementById("appsList");
@@ -188,8 +193,23 @@ function todayISO() {   // local date, not UTC
 }
 
 api("/api/hello")
-  .then((d) => { greeting.textContent = d.greeting; })
+  .then((d) => { greeting.textContent = d.greeting; favorites.style.display = "block" })
   .catch((e) => { greeting.textContent = e.message; });
+
+async function loadFavorites() {
+    controller?.abort();
+    controller = new AbortController();
+    statusEl.textContent = "Loading…";
+    appsList.replaceChildren();
+    try {
+    const { apps } = await api(`/api/favorite`, { signal: controller.signal });
+    statusEl.textContent = apps.length ? "" : "No favorites.";
+    appsList.replaceChildren(...apps.map(renderApp));
+    } catch (err) {
+    if (err.name === "AbortError") return;
+    statusEl.textContent = err.message;
+    }
+}
 
 datePicker.value = todayISO();
 datePicker.addEventListener("change", () => datePicker.value && loadApps(datePicker.value));
