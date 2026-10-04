@@ -75,7 +75,7 @@ def load_storage() -> dict:
     else:
         data = {}
     data.setdefault("followers", {})
-    data.setdefault("pending_appids", [])
+    data.setdefault("pending_appids", []) # Not used
     data.setdefault("released_appids", [])
     data.setdefault("next_seq", 1)
     data.setdefault("last_summary_date", date.today().isoformat())
@@ -266,6 +266,22 @@ async def run_check_releases(context: ContextTypes.DEFAULT_TYPE) -> None:
             "release_date": info["release_date_str"],
             "release_iso": game_date.isoformat(),
         })
+        try:
+            await asyncio.to_thread(
+                db.add_app,
+                appid,
+                seq,
+                info["type"],
+                info["name"],
+                info["genres"],
+                info["description"],
+                info["image"],
+                f"https://store.steampowered.com/app/{appid}",
+                info["price"],
+                game_date,
+            )
+        except Exception as e:
+            log.warning("Couldn't save app %s to the database: %s", appid, e)
 
     storage["released_appids"] = released
     save_storage(storage)
@@ -713,6 +729,16 @@ async def follow(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             "want_demos": True,
             "email": ""
         }
+
+        try:
+            await asyncio.to_thread(
+                db.add_user,
+                update.effective_chat.id,
+                max(older_games_seqs, default=0),
+                max(older_demos_seqs, default=0),
+            )
+        except Exception as e:
+            log.warning("Couldn't save user %s to the database: %s", chat_id, e)
 
         save_storage(storage)
         await update.message.reply_text("Following.")
