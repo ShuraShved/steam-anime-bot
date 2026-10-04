@@ -13,8 +13,33 @@ body {
   background: var(--tg-theme-bg-color, #fff);
   color: var(--tg-theme-text-color, #000);
 }
+.header-container {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+.header-container h1 {
+  margin: 0;
+}
 h1 { font-size: 20px; margin: 0 0 20px; }
-#favorites { display: none; }
+#favorites {
+    display: none;
+    background-color: #1c1c1e;
+    color: #ffffff;
+    font-weight: bold;
+    font-size: 14px;
+    padding: 8px 16px;
+    border: none;
+    border-radius: 20px;
+    cursor: pointer;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    transition: transform 0.1s ease, opacity 0.2s ease;
+}
+#favorites:active {
+  transform: scale(0.95);
+  opacity: 0.8;
+}
 h2 { font-size: 17px; margin: 0 0 8px; }
 #datePicker {
   width: 100%; padding: 10px 12px; font-size: 16px;
@@ -66,9 +91,9 @@ h2 { font-size: 17px; margin: 0 0 8px; }
 </style>
 </head>
 <body>
-<div>
+<div class="header-container">
     <h1 id="greeting">Loading…</h1>
-    <button onclick="loadFavorites()" id="favorites">My faves ★</button>
+    <button onclick="loadFavorites()" id="favorites">My faves 🌟</button>
 </div>
 
 <h2>Release radar</h2>
@@ -202,7 +227,7 @@ async function loadFavorites() {
     statusEl.textContent = "Loading…";
     appsList.replaceChildren();
     try {
-    const { apps } = await api(`/api/favorite`, { signal: controller.signal });
+    const { apps } = await api(`/api/favorite`, { method: 'GET', signal: controller.signal });
     statusEl.textContent = apps.length ? "" : "No favorites.";
     appsList.replaceChildren(...apps.map(renderApp));
     } catch (err) {
