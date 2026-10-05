@@ -218,6 +218,7 @@ __marimo__/
 .streamlit/secrets.toml
 
 # Other project files
+sql/
 storage.json
 test/
 assets/photoshop/

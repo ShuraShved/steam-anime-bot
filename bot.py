@@ -29,7 +29,7 @@ from telegram.ext import (
     CommandHandler,
     ContextTypes,
 )
-
+import db
 
 load_dotenv()
 
@@ -39,6 +39,8 @@ logging.basicConfig(
 )
 logging.getLogger("httpx").setLevel(logging.WARNING)
 log = logging.getLogger("steam_anime_bot")
+
+WEBAPP_URL = os.environ["WEBAPP_URL"]
 
 BASE_DIR = Path(__file__).resolve().parent
 STORAGE_PATH = BASE_DIR / "storage.json"
@@ -73,7 +75,7 @@ def load_storage() -> dict:
     else:
         data = {}
     data.setdefault("followers", {})
-    data.setdefault("pending_appids", [])
+    data.setdefault("pending_appids", []) # Not used
     data.setdefault("released_appids", [])
     data.setdefault("next_seq", 1)
     data.setdefault("last_summary_date", date.today().isoformat())
@@ -264,6 +266,22 @@ async def run_check_releases(context: ContextTypes.DEFAULT_TYPE) -> None:
             "release_date": info["release_date_str"],
             "release_iso": game_date.isoformat(),
         })
+        try:
+            await asyncio.to_thread(
+                db.add_app,
+                appid,
+                seq,
+                info["type"],
+                info["name"],
+                info["genres"],
+                info["description"],
+                info["image"],
+                f"https://store.steampowered.com/app/{appid}",
+                info["price"],
+                game_date,
+            )
+        except Exception as e:
+            log.warning("Couldn't save app %s to the database: %s", appid, e)
 
     storage["released_appids"] = released
     save_storage(storage)
@@ -385,13 +403,13 @@ async def generate_and_send_summary(context: ContextTypes.DEFAULT_TYPE, day: dat
             "Output only the final message. Do not output explanations, "
             "HTML code fences, or any tag not listed above. "
             "Don't forget to link games you'll reference like <a href='https://example.com'>Link</a>.\n"
-            "Keep your response concise (strictly under 1024 characters) so that all text, links, and tags are "
+            "Keep your response concise (strictly under 950 characters) so that all text, links, and tags are "
             "fully finished and never truncated!\n\n"
             "The ones you chose to recommend, at the very end of your response, strictly list "
             "their 'appid's inside the tag <recommendations>, separated by commas. "
             "Don't write anything else inside this tag. "
             "Example: <recommendations>123456, 789012</recommendations>.\n"
-            "Your total output is limited to 1024 characters.\n"
+            "Your total output is limited to 950 characters.\n"
             f"Here is the list:\n{appids}"
         )
 
@@ -444,6 +462,23 @@ async def generate_and_send_summary(context: ContextTypes.DEFAULT_TYPE, day: dat
                                 flags=re.IGNORECASE | re.DOTALL).strip()
 
         return clean_text, recommended_images, recommended_games
+
+    for combo, games_part, demos_part in (
+            (interaction_combo, game_list, demo_list),
+            (interaction_game, game_list, []),
+            (interaction_demo, [], demo_list),
+    ):
+        if combo:
+            try:
+                summary_text, _, summary_games = parse_response(
+                    combo.choices[0].message.content, games_part, demos_part
+                )
+                await asyncio.to_thread(
+                    db.add_summary, day, summary_text, [g["appid"] for g in summary_games]
+                )
+            except Exception as e:
+                log.warning("Couldn't save summary to the database: %s", e)
+            break
 
     for chat_id, prefs in followers.items():
         if prefs["want_games"] and prefs["want_demos"] and interaction_combo:
@@ -711,6 +746,16 @@ async def follow(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             "want_demos": True,
             "email": ""
         }
+        # Postgres
+        try:
+            await asyncio.to_thread(
+                db.add_user,
+                update.effective_chat.id,
+                max(older_games_seqs, default=0),
+                max(older_demos_seqs, default=0),
+            )
+        except Exception as e:
+            log.warning("Couldn't save user %s to the database: %s", chat_id, e)
 
         save_storage(storage)
         await update.message.reply_text("Following.")
@@ -722,6 +767,12 @@ async def follow(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def unfollow(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     storage = load_storage()
     chat_id = str(update.effective_chat.id)
+    # Postgres
+    try:
+        await asyncio.to_thread(db.remove_user, update.effective_chat.id)
+    except Exception as e:
+        log.warning("Couldn't remove user %s from the database: %s", chat_id, e)
+
     if chat_id in storage["followers"]:
         storage["followers"].pop(chat_id)
         save_storage(storage)
