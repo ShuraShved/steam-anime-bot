@@ -91,7 +91,6 @@ h2 { font-size: 17px; margin: 0 0 8px; }
   background: none; border: 0; color: var(--tg-theme-hint-color, #8a8a8e);
 }
 .star[aria-pressed="true"] { color: gold; }
-.star:disabled { opacity: 0.5; }
 @media (prefers-reduced-motion: reduce) { .card { animation: none; } }
 .toast {
   position: fixed; left: 50%; z-index: 10;
@@ -178,6 +177,7 @@ async function toggleFavorite(app, btn) {
   const next = !app.is_favorite;
   setStar(btn, next);            // optimistic update
   btn.disabled = true;
+  tg.HapticFeedback?.impactOccurred("light");
   try {
     await api("/api/favorite", {
       method: "POST",
@@ -185,7 +185,6 @@ async function toggleFavorite(app, btn) {
       body: JSON.stringify({ id: app.id, favorite: next }),
     });
     app.is_favorite = next;
-    tg.HapticFeedback?.impactOccurred("light");
   } catch (err) {
     setStar(btn, app.is_favorite);   // roll back
     showToast(err.message);
