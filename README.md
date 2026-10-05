@@ -4,20 +4,37 @@
   <img src="assets/preview_gh.png"/>
 </p>
 
-A Telegram bot for tracking new anime game and demo 
+A feature-packed Telegram bot and Mini App for tracking new anime game and demo 
 releases on Steam, with daily AI-powered 
-summary reporting on newly released games and offering 
-smart recommendations.
+summary reporting on new releases.
 
-**Email Digests [NEW!]:** Users can now link their email to receive daily summaries straight to their inbox.
+
+> **Update:** Check out interactive **Telegram Mini App** for browsing games, reviewing past AI digests, and saving favorites!
+<p align="center">
+  <img src="assets/miniapp.png"/>
+</p>
+
+
+## Features
+- 📱 **Telegram Mini App:**
+  - 📅 **Interactive Calendar:** View releases date-by-date with fluid animations.
+  - 🤖 **AI Digests:** Get daily summaries and recommendations.
+  - 🌟 **Favorites:** Bookmark titles directly inside Telegram.
+- 🎮 **Steam Release Radar:** Real-time tracking of anime games and demos.
+- 🔔 **Alerts:** Get release-day notifications.
+- 📧 **Email Digests:** Users can link their email to receive daily summaries straight to their inbox.
+- ⚙️ **Flexible Settings:** Customize alerts for full games, demos, or both.
+
 
 ## Built with
 * **[python-telegram-bot](https://github.com/python-telegram-bot/python-telegram-bot)** – Telegram API framework
+* **[Vercel](https://vercel.com)** – Mini App and API deployment
+* **[Neon](https://neon.com)** – PostgreSQL database
 * **[OpenRouter API](https://openrouter.ai/)** – AI-generated daily summaries and recommendations (via OpenAI SDK)
 * **Google SMTP** – Sending automated daily digests to user emails
 * **[Docker & Docker Compose](https://www.docker.com/)** – Containerization and deployment
 
-## Setup and Launch
+## Setup and Launch (deprecated)
 
 1. **Clone the repository:**
 ```bash
