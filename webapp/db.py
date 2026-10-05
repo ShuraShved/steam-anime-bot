@@ -28,20 +28,6 @@ def get_db_user_id(chat_id: int):
         return row["id"] if row else None
 
 
-def get_or_create_db_user_id(chat_id: int) -> int:
-    """Telegram user id -> users.id, creating the row on first use. Needs UNIQUE(chat_id)."""
-    with cursor() as cur:
-        cur.execute(
-            """
-            INSERT INTO users (chat_id) VALUES (%s)
-            ON CONFLICT (chat_id) DO UPDATE SET chat_id = EXCLUDED.chat_id
-            RETURNING id
-            """,
-            (chat_id,),
-        )
-        return cur.fetchone()["id"]
-
-
 def get_apps_by_date(release_date, db_user_id):
     with cursor() as cur:
         cur.execute(
@@ -91,3 +77,10 @@ def get_favorites(db_user_id: int):
             (db_user_id,),
         )
         return cur.fetchall()
+
+
+def get_summary(summary_date):
+    with cursor() as cur:
+        cur.execute("SELECT text FROM summaries WHERE summary_date = %s", (summary_date,))
+        row = cur.fetchone()
+        return row["text"] if row else None

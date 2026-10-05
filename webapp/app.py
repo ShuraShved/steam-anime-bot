@@ -11,7 +11,8 @@ app = Flask(__name__)
 @app.get("/api/hello")
 @require_user
 def hello():
-    return jsonify(greeting=f"Hello, {g.user.get('first_name', '')}!")
+    following = db.get_db_user_id(g.user["id"]) is not None
+    return jsonify(greeting=f"Hello, {g.user.get('first_name', 'friend')}!", following=following)
 
 
 @app.get("/api/apps")
@@ -22,9 +23,19 @@ def apps_by_date():
     except ValueError:
         return jsonify(error="Invalid or missing date, expected YYYY-MM-DD."), 400
 
-    # None if the user has no row yet: the list still works, just without stars.
+    # None if the user never followed in the bot: the list still works, just without stars.
     db_user_id = db.get_db_user_id(g.user["id"])
     return jsonify(apps=db.get_apps_by_date(release_date, db_user_id))
+
+
+@app.get("/api/summary")
+@require_user
+def summary():
+    try:
+        summary_date = date.fromisoformat(request.args.get("date", ""))
+    except ValueError:
+        return jsonify(error="Invalid or missing date, expected YYYY-MM-DD."), 400
+    return jsonify(summary=db.get_summary(summary_date))
 
 
 @app.post("/api/favorite")
@@ -36,7 +47,9 @@ def favorite():
         return jsonify(error="Expected JSON: {id: int, favorite: bool}."), 400
 
     # The user comes from the signed initData, never from the request body.
-    db_user_id = db.get_or_create_db_user_id(g.user["id"])
+    db_user_id = db.get_db_user_id(g.user["id"])
+    if db_user_id is None:
+        return jsonify(error="You need to /follow in the bot to do that."), 403
     if not db.set_favorite(db_user_id, app_id, is_fav):
         return jsonify(error="Game not found."), 404
     return jsonify(id=app_id, favorite=is_fav)
@@ -44,10 +57,10 @@ def favorite():
 
 @app.get("/api/favorite")
 @require_user
-def show_favorites():
+def list_favorites():
     db_user_id = db.get_db_user_id(g.user["id"])
-    if not db_user_id:
-        return jsonify(favorites=[])
+    if db_user_id is None:
+        return jsonify(error="You need to /follow in the bot to do that."), 403
     return jsonify(favorites=db.get_favorites(db_user_id))
 
 

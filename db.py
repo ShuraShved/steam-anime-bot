@@ -46,3 +46,25 @@ def add_user(chat_id, games_cursor=0, demos_cursor=0):
             """,
             (chat_id, games_cursor, demos_cursor),
         )
+
+
+def remove_user(chat_id):
+    """Delete the user row; ON DELETE CASCADE also deletes their favorites.
+    Safe to call when the row doesn't exist."""
+    with _cursor() as cur:
+        cur.execute("DELETE FROM users WHERE chat_id = %s", (chat_id,))
+
+
+def add_summary(summary_date, text, app_ids):
+    """One summary per day: running it again for the same day replaces it.
+    app_ids are Steam appids (appids.app_id), stored as '123,456'."""
+    with _cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO summaries (summary_date, text, app_ids)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (summary_date) DO UPDATE
+                SET text = EXCLUDED.text, app_ids = EXCLUDED.app_ids
+            """,
+            (summary_date, text, ",".join(map(str, app_ids))),
+        )

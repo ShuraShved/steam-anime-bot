@@ -463,6 +463,23 @@ async def generate_and_send_summary(context: ContextTypes.DEFAULT_TYPE, day: dat
 
         return clean_text, recommended_images, recommended_games
 
+    for combo, games_part, demos_part in (
+            (interaction_combo, game_list, demo_list),
+            (interaction_game, game_list, []),
+            (interaction_demo, [], demo_list),
+    ):
+        if combo:
+            try:
+                summary_text, _, summary_games = parse_response(
+                    combo.choices[0].message.content, games_part, demos_part
+                )
+                await asyncio.to_thread(
+                    db.add_summary, day, summary_text, [g["appid"] for g in summary_games]
+                )
+            except Exception as e:
+                log.warning("Couldn't save summary to the database: %s", e)
+            break
+
     for chat_id, prefs in followers.items():
         if prefs["want_games"] and prefs["want_demos"] and interaction_combo:
             content = interaction_combo.choices[0].message.content
@@ -729,7 +746,7 @@ async def follow(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             "want_demos": True,
             "email": ""
         }
-
+        # Postgres
         try:
             await asyncio.to_thread(
                 db.add_user,
@@ -750,6 +767,12 @@ async def follow(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def unfollow(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     storage = load_storage()
     chat_id = str(update.effective_chat.id)
+    # Postgres
+    try:
+        await asyncio.to_thread(db.remove_user, update.effective_chat.id)
+    except Exception as e:
+        log.warning("Couldn't remove user %s from the database: %s", chat_id, e)
+
     if chat_id in storage["followers"]:
         storage["followers"].pop(chat_id)
         save_storage(storage)
