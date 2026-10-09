@@ -342,11 +342,23 @@ async def deliver_pending(context: ContextTypes.DEFAULT_TYPE, chat_id: str | Non
 
 
 def call_api(messages: list, models: list = FREE_MODELS):
-    return openrouter_client.chat.completions.create(
-        model=models[0],
-        messages=messages,
-        extra_body={"models": models},
-    )
+    # return openrouter_client.chat.completions.create(
+    #     model=models[0],
+    #     messages=messages,
+    #     extra_body={"models": models},
+    # )
+    for model in models:
+        try:
+            client = openrouter_client.with_options(timeout=180, max_retries=0)
+            response = client.chat.completions.create(model=model, messages=messages)
+        except Exception as e:
+            log.warning("Model %s failed: %s", model, e)
+            continue
+        if response.choices and response.choices[0].message.content:
+            return response
+        finish = response.choices[0].finish_reason if response.choices else None
+        log.warning("Model %s returned an empty answer (finish_reason=%s)", model, finish)
+    return None
 
 
 async def generate_and_send_summary(context: ContextTypes.DEFAULT_TYPE, day: date) -> None:
@@ -370,6 +382,10 @@ async def generate_and_send_summary(context: ContextTypes.DEFAULT_TYPE, day: dat
     formatted_date = date_obj.strftime("%d %B %Y").lstrip("0")
 
     def build_prompt(appids):
+        formatted_list = "\n".join(
+            [f"{g['name']}: {g.get('description', '')}" for g in appids]
+        )
+
         return (
             "You have a list of games released today, each in the form 'name: description', one per line. "
             "Summarize the games and genres based on their descriptions, and pick up to 3 of the most exciting "
@@ -410,7 +426,7 @@ async def generate_and_send_summary(context: ContextTypes.DEFAULT_TYPE, day: dat
             "Don't write anything else inside this tag. "
             "Example: <recommendations>123456, 789012</recommendations>.\n"
             "Your total output is limited to 950 characters.\n"
-            f"Here is the list:\n{appids}"
+            f"Here is the list:\n{formatted_list}"
         )
 
     interaction_game = interaction_demo = interaction_combo = None
@@ -858,7 +874,7 @@ if __name__ == '__main__':
 
     application.job_queue.run_daily(
         daily_summary,
-        time=time(hour=17, minute=0),
+        time=time(hour=20, minute=0),
         name="daily_summary",
     )
 
