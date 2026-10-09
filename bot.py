@@ -52,7 +52,6 @@ SEARCH_URL = "https://store.steampowered.com/search/results/"
 
 OPENROUTER_API_KEY = os.environ["OPENROUTER_API_KEY"]
 FREE_MODELS = [
-    "nvidia/nemotron-3-ultra-550b-a55b:free",
     "nvidia/nemotron-3-super-120b-a12b:free",
     "nvidia/nemotron-3.5-lightning:free",
 ]
@@ -401,13 +400,17 @@ async def generate_and_send_summary(context: ContextTypes.DEFAULT_TYPE, day: dat
             "### TASK\n"
             f"1. Summarize games, identify genres from `{formatted_list}`.\n"
             "2. Recommend up to 3 most exciting games.\n"
-            "3. Generate a concise report (under 950 chars total) using Telegram HTML.\n"
+            "3. Generate a concise report (under 980 chars total) using Telegram HTML.\n"
             "### OUTPUT FORMAT\n"
             "- Friendly tone, relevant emojis (no spam). Empty line separates major sections.\n"
             f"- Line 1: Game count & date. E.g., 'X new games dropped {today}! 🕹️🎉'\n"
+            "insert empty line\n"
             f"- Line 2: '{formatted_date}. Include notable holiday/event, then transition to updates.'\n"
+            "insert empty line\n"
             "- Line 3: <b>Genres:</b> [list of genres].\n"
+            "insert empty line\n"
             "- Line 4: <b>Summary:</b> [summary and recommendations].\n"
+            "insert empty line\n"
             "- Line 5: Recommended games as HTML links, separated by `|`. E.g., "
             "`<a href='URL'>Game 1</a> | <a href='URL'>Game 2</a>`.\n"
             "- Final line: `<recommendations>appid1,appid2,appid3</recommendations>`.\n"
