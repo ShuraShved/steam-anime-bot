@@ -159,6 +159,8 @@ async function api(path, options = {}) {
   const res = await fetch(path, {
     ...options,
     headers: { "X-Init-Data": tg.initData, ...(options.headers || {}) },
+
+
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
@@ -268,7 +270,9 @@ async function loadSummary(date) {
   summaryController = new AbortController();
   summarySection.hidden = true;
   try {
-    const { summary } = await api(`/api/summary?date=${encodeURIComponent(date)}`, { signal: summaryController.signal });
+    const { summary } = await api(`/api/summary?date=${encodeURIComponent(date)}`, {
+        signal: summaryController.signal
+    });
     if (!summary) return;
     summaryText.replaceChildren();
     renderSummaryHtml(summary, summaryText);
