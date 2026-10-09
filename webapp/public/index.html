@@ -160,7 +160,7 @@ async function api(path, options = {}) {
     ...options,
     headers: { "X-Init-Data": tg.initData, ...(options.headers || {}) },
 
-    
+
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);

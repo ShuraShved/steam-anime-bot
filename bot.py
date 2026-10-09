@@ -350,7 +350,13 @@ def call_api(messages: list, models: list = FREE_MODELS):
     for model in models:
         try:
             client = openrouter_client.with_options(timeout=180, max_retries=0)
-            response = client.chat.completions.create(model=model, messages=messages)
+            response = client.chat.completions.create(
+                model=model,
+                messages=messages,
+                extra_body={
+                    "include_reasoning": False
+                }
+            )
         except Exception as e:
             log.warning("Model %s failed: %s", model, e)
             continue
@@ -383,11 +389,11 @@ async def generate_and_send_summary(context: ContextTypes.DEFAULT_TYPE, day: dat
 
     def build_prompt(appids):
         formatted_list = "\n".join(
-            [f"{g['name']}: {g.get('description', '')}" for g in appids]
+            [f"{g['name']}: {g.get('description', '')}; ({g['id']})." for g in appids]
         )
 
         return (
-            "You have a list of games released today, each in the form 'name: description', one per line. "
+            "You have a list of games released today, each in the form 'name: description; (appid)', one per line. "
             "Summarize the games and genres based on their descriptions, and pick up to 3 of the most exciting "
             "ones to recommend. First line: write the number of games and date. Like: "
             f"'5 new games dropped {today}! 🕹️🎉' or think of something alike yourself. "
