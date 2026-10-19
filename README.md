@@ -27,7 +27,7 @@ summary reporting on new releases.
 
 
 ## Built with
-* **[python-telegram-bot](https://github.com/python-telegram-bot/python-telegram-bot)** – Telegram API framework
+* **[python-telegram-bot](https://github.com/python-telegram-bot/python-telegram-bot)** – Telegram Bot API
 * **[Vercel](https://vercel.com)** – Mini App and API deployment
 * **[Neon](https://neon.com)** – PostgreSQL database
 * **[OpenRouter API](https://openrouter.ai/)** – AI-generated daily summaries and recommendations (via OpenAI SDK)

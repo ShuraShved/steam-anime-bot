@@ -1,5 +1,6 @@
 import asyncio
 from datetime import date, datetime, time, timedelta
+from zoneinfo import ZoneInfo
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 import html
@@ -77,7 +78,7 @@ def load_storage() -> dict:
     data.setdefault("pending_appids", []) # Not used
     data.setdefault("released_appids", [])
     data.setdefault("next_seq", 1)
-    data.setdefault("last_summary_date", date.today().isoformat())
+    data.setdefault("last_summary_date", (date.today() - timedelta(days=1)).isoformat())
     return data
 
 
@@ -207,8 +208,8 @@ def fetch_game_details(appid: int) -> dict | None:
 
 
 def build_caption(appid: int, info: dict) -> str:
-    name = html.escape(info["name"])
-    desc = html.escape(info["description"])
+    name = html.escape(info["name"], quote=False)
+    desc = html.escape(info["description"], quote=False)
     genres = info["genres"]
     price = info["price"]
     if len(desc) > 500:
@@ -218,7 +219,7 @@ def build_caption(appid: int, info: dict) -> str:
     else: header = f"🎉 <b>{name}</b> — released!\n"
     return (
         f"{header}"
-        f"Release date: {html.escape(str(info['release_date']))}\n"
+        f"Release date: {html.escape(str(info['release_date']), quote=False)}\n"
         f"Genres: <i>{genres}</i>\n\n"
         f"{desc}\n\n"
         f"{price}\n\n"
@@ -248,11 +249,9 @@ async def run_check_releases(context: ContextTypes.DEFAULT_TYPE) -> None:
             continue
 
         game_date = info["parsed_date"]
-        if game_date.isoformat() != date.today().isoformat():
-            seq = 0
-        else:
-            seq = storage["next_seq"]
-            storage["next_seq"] += 1
+        seq = storage["next_seq"]
+        storage["next_seq"] += 1
+
         released.append({
             "seq": seq,
             "appid": appid,
@@ -382,9 +381,7 @@ async def generate_and_send_summary(context: ContextTypes.DEFAULT_TYPE, day: dat
     need_demos = any(pref["want_demos"] and not pref["want_games"] for pref in followers.values())
     need_combo = any(pref["want_games"] and pref["want_demos"] for pref in followers.values())
 
-    today = "today" if date.today().isoformat() == day_iso else day_iso
-    date_obj = datetime.fromisoformat(day_iso)
-    formatted_date = date_obj.strftime("%d %B %Y").lstrip("0")
+    formatted_date = day.strftime("%d %B").lstrip("0")
 
     def build_prompt(appids):
         formatted_list = "\n".join(
@@ -396,16 +393,16 @@ async def generate_and_send_summary(context: ContextTypes.DEFAULT_TYPE, day: dat
             "You are a game news reporter for Telegram.\n"
             "### INPUT\n"
             "List of new games, format: 'name: description; (appid)' per line.\n"
-            f"Variables: `{today}`, `{formatted_date}`, `{formatted_list}`.\n"
+            f"Variables: `{formatted_date}`, `{formatted_list}`.\n"
             "### TASK\n"
             f"1. Summarize games, identify genres from `{formatted_list}`.\n"
             "2. Recommend up to 3 most exciting games.\n"
             "3. Generate a concise report (under 980 chars total) using Telegram HTML.\n"
             "### OUTPUT FORMAT\n"
             "- Friendly tone, relevant emojis (no spam). Empty line separates major sections.\n"
-            f"- Line 1: Game count & date. E.g., 'X new games dropped {today}! 🕹️🎉'\n"
+            f"- Line 1: Game count & date. E.g., 'X new games dropped {formatted_date}! 🕹️🎉'\n"
             "insert empty line\n"
-            f"- Line 2: '{formatted_date}. Include notable holiday/event, then transition to updates.'\n"
+            f"- Line 2: 'Include notable holiday/event of this date, then transition to updates.'\n"
             "insert empty line\n"
             "- Line 3: <b>Genres:</b> [list of genres].\n"
             "insert empty line\n"
@@ -564,16 +561,17 @@ async def generate_and_send_summary(context: ContextTypes.DEFAULT_TYPE, day: dat
 
 async def daily_summary(context: ContextTypes.DEFAULT_TYPE) -> None:
     storage = load_storage()
-    last_date = date.fromisoformat(storage.get("last_summary_date", (date.today() - timedelta(days=1)).isoformat()))
+    today = date.today()
+    last_date = date.fromisoformat(storage.get("last_summary_date", (today - timedelta(days=1)).isoformat()))
 
     d = last_date + timedelta(days=1)
-    while d <= date.today():
+    while d <= today:
         await generate_and_send_summary(context, d)
         d += timedelta(days=1)
-        if d <= date.today():
+        if d <= today:
             await asyncio.sleep(5)
 
-    storage["last_summary_date"] = date.today().isoformat()
+    storage["last_summary_date"] = (today - timedelta(days=1)).isoformat()
     save_storage(storage)
 
 
@@ -868,7 +866,7 @@ if __name__ == '__main__':
 
     application.job_queue.run_daily(
         daily_summary,
-        time=time(hour=20, minute=0),
+        time=time(hour=17, minute=0, tzinfo=ZoneInfo("UTC")),
         name="daily_summary",
     )
 
