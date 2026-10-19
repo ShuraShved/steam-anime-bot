@@ -561,7 +561,7 @@ async def generate_and_send_summary(context: ContextTypes.DEFAULT_TYPE, day: dat
 
 async def daily_summary(context: ContextTypes.DEFAULT_TYPE) -> None:
     storage = load_storage()
-    today = date.today()
+    today = date.today() - timedelta(days=1)
     last_date = date.fromisoformat(storage.get("last_summary_date", (today - timedelta(days=1)).isoformat()))
 
     d = last_date + timedelta(days=1)
@@ -571,7 +571,7 @@ async def daily_summary(context: ContextTypes.DEFAULT_TYPE) -> None:
         if d <= today:
             await asyncio.sleep(5)
 
-    storage["last_summary_date"] = (today - timedelta(days=1)).isoformat()
+    storage["last_summary_date"] = today.isoformat()
     save_storage(storage)
 
 
